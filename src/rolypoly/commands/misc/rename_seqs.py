@@ -74,9 +74,9 @@ def calculate_sequence_stats(df: pl.DataFrame) -> pl.DataFrame:
         pl.DataFrame: DataFrame with added statistics columns
     """
     return df.with_columns([
-        pl.col("sequence").str.lengths().alias("length"),
+        pl.col("sequence").str.len_chars().alias("length"),
         (pl.col("sequence").str.count_matches("G|C").cast(pl.Float64) / 
-        pl.col("sequence").str.lengths() * 100.0).alias("gc_content")
+        pl.col("sequence").str.len_chars() * 100.0).alias("gc_content")
     ])
 
 @click.command()

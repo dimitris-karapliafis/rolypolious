@@ -5,9 +5,12 @@ from pathlib import Path
 import rich_click as click
 from rolypoly.utils.loggit import log_start_info
 from rolypoly.utils.config import BaseConfig
+from rolypoly.utils.various import run_command_comp
 from rich.console import Console
 from typing import Tuple, Dict
 import re
+import polars as pl
+from bbmapy import bbmap
 
 console = Console()
 
@@ -306,8 +309,6 @@ def assembly(input=None, paired_end=None, single_end=None, merged=None,
     """
 
     import shutil
-    import sh
-    from rolypoly.utils.bwt1 import build_index, align_paired_end_interleaved, align_single_end
     from rolypoly.utils.citation_reminder import remind_citations
     from rolypoly.utils.various import check_dependencies
 
@@ -383,64 +384,206 @@ def assembly(input=None, paired_end=None, single_end=None, merged=None,
         contigs4eval.append(run_penguin(config, libraries))
         tools.append("penguin")
         
+    # First concatenate and rename all contigs
+    if len(contigs4eval) > 0:
+        # Concatenate all contigs into one file
+        concat_file = str(config.output_dir / "all_contigs.fasta")
+        config.logger.info(f"Concatenating {len(contigs4eval)} contig files into {concat_file}")
+        with open(concat_file, 'w') as outfile:
+            for contig_file in contigs4eval:
+                with open(str(contig_file), 'r') as infile:
+                    outfile.write(infile.read())
+        
+        try:
+            # Rename sequences
+            from rolypoly.commands.misc.rename_seqs import read_fasta2polars_df, rename_sequences, calculate_sequence_stats
+            config.logger.info("Reading and parsing FASTA file")
+            df = read_fasta2polars_df(concat_file)
+            config.logger.info(f"Found {len(df)} sequences")
+            
+            config.logger.info("Renaming sequences")
+            df_renamed, id_map = rename_sequences(df, prefix="CID", use_hash=False)
+            config.logger.info("Calculating sequence statistics")
+            df_renamed = calculate_sequence_stats(df_renamed)
+            
+            # Write renamed sequences
+            renamed_file = str(config.output_dir / "all_contigs_renamed.fasta")
+            config.logger.info(f"Writing renamed sequences to {renamed_file}")
+            with open(renamed_file, 'w') as f:
+                for header, seq in zip(df_renamed['header'], df_renamed['sequence']):
+                    f.write(f">{header}\n{seq}\n")
+            
+            # Update contigs4eval to use renamed file
+            contigs4eval = [renamed_file]
+            
+            # Save mapping file
+            mapping_file = str(config.output_dir / "contigs_id_map.tsv")
+            config.logger.info(f"Saving ID mapping to {mapping_file}")
+            mapping_df = pl.DataFrame({
+                "old_id": list(id_map.keys()),
+                "new_id": list(id_map.values()),
+                "length": df_renamed["length"],
+                "gc_content": df_renamed["gc_content"].round(2)
+            })
+            mapping_df.write_csv(mapping_file, separator='\t')
+            
+        except Exception as e:
+            config.logger.error(f"Error during sequence renaming: {str(e)}")
+            config.logger.warning("Continuing with original contig files")
+            # Keep original contigs4eval if renaming fails
+        
     # Deduplication step # TODO: add as optional a linclust step. 
-    if "seqkit" not in config.skip_steps:
+    if "seqkit" not in config.skip_steps and len(contigs4eval) > 0:
         tools.append("seqkit")
-        seqkit = sh.Command("seqkit")
-        seqkit.rmdup(
-            "--by-seq", *contigs4eval,
-            "--dup-num-file",
-            f"{config.output_dir}/rmdup_dup_file.txt", "-w", "0",
-            "--threads", config.threads,
-            "--out-file", f"{config.output_dir}/rmdup_contigs.fasta",
+        dedup_output = str(config.output_dir / "rmdup_contigs.fasta")
+        run_command_comp(
+            "seqkit rmdup",
+            positional_args=[str(contigs4eval[0])],positional_args_location="end",
+            params={
+                "by-seq": True,  # Use sequence for deduplication
+                "line-width": "0",
+                "threads": str(config.threads),
+                "out-file": dedup_output,
+                "dup-num-file": str(config.output_dir / "Redundancy_lookup.txt")
+            },
+            logger=config.logger,
+            prefix_style='double'
         )
         config.logger.info(f"Finished deduplicating: {contigs4eval}")
         
-    # Evaluation steps
-    # Calculate coverage distribution and capture unassembled reads
-    if "bbwrap" not in config.skip_steps:
-        from bbmapy import bbwrap
-        bbwrap(
-            ref=f"{config.output_dir}/rmdup_contigs.fasta",
-            in_file=f"{','.join(str(lib['interleaved']) for lib in libraries.values() if lib['interleaved'])},"
-                   f"{','.join(str(lib['merged']) for lib in libraries.values() if lib['merged'])}",
-            out=f"{config.output_dir}/bbwrap_output.sam",
-            threads=config.threads,
-            nodisk=True,
-            covhist=f"{config.output_dir}/assembly_covhist.txt",
-            covstats=f"{config.output_dir}/assembly_covstats.txt",
-            outm=f"{config.output_dir}/assembly_bbw_assembled.fq.gz",
-            outu=f"{config.output_dir}/assembly_bbw_unassembled.fq.gz",
-            **config.step_params['bbwrap']
-        )
-
-    # Generate SAM file using bowtie1 # TODO: add bowtie2, mmseqs2 or bbwrap.
-    if "bowtie" not in config.skip_steps:
+        # Verify dedup output exists before proceeding
+        if not os.path.exists(dedup_output) or os.path.getsize(dedup_output) == 0:
+            config.logger.error(f"Deduplication failed: {dedup_output} not found or empty")
+            return
+        
+    # Map reads back to contigs using either bbmap_skimmer (default) or bowtie (low-mem)
+    if os.path.exists(str(config.output_dir / "rmdup_contigs.fasta")):
         interleaved = ",".join(str(lib['interleaved']) for lib in libraries.values() if lib['interleaved'])
         merged = ",".join(str(lib['merged']) for lib in libraries.values() if lib['merged'])
-        tools.append("bowtie")
-        os.makedirs(f"{config.output_dir}/bowtie_index", exist_ok=True)
-        build_index(reference_in=f"{config.output_dir}/rmdup_contigs.fasta", index_base=f"{config.output_dir}/bowtie_index", threads=config.threads)
-        try:
-            if len(interleaved) > 0:
-                align_paired_end_interleaved(index_base=f"{config.output_dir}/bowtie_index", reads=interleaved, output_file=f"{config.output_dir}/assembly_bowtie_interleaved.sam", threads=config.threads)
-                sh.pigz("-p", config.threads, f"{config.output_dir}/assembly_bowtie_interleaved.sam")
-            if len(merged) > 0:
-                align_single_end(index_base=f"{config.output_dir}/bowtie_index", reads=merged, output_file=f"{config.output_dir}/assembly_bowtie_merged_reads.sam", threads=config.threads)
-                sh.pigz("-p", config.threads, f"{config.output_dir}/assembly_bowtie_merged_reads.sam")
-        except Exception as e:
-            config.logger.warning(f"Failed to align reads to contigs: {e}")
+        
+        # Use bbmap_skimmer by default
+        if "bbmap" not in config.skip_steps:
+            tools.append("bbmap")
+            config.logger.info("Running bbmap_skimmer for read mapping")
+            
+            # Combine all input reads
+            input_reads = []
+            if interleaved:
+                input_reads.extend(interleaved.split(","))
+            if merged:
+                input_reads.extend(merged.split(","))
+                
+            bbmap(
+                ref=str(config.output_dir / "rmdup_contigs.fasta"),
+                in_file=",".join(input_reads),
+                out=str(config.output_dir / "assembly_bbmap.sam"),
+                threads=str(config.threads),
+                Xmx=str(config.memory["giga"]),
+                ignorefrequentkmers="f",
+                vslow=True,
+                maxsites="1500",
+                maxsites2="1500",
+                sam="1.4",
+                minid="0.8",
+                nodisk=True,
+                ambiguous="all",
+                overwrite="t",
+                secondary=True
+            )
+            
+            # Compress SAM file
+            if os.path.exists(str(config.output_dir / "assembly_bbmap.sam")):
+                run_command_comp(
+                    "pigz",
+                    params={"p": str(config.threads)},
+                    positional_args=[str(config.output_dir / "assembly_bbmap.sam")],
+                    logger=config.logger,
+                    prefix_style='single'
+                )
+        
+        # Use bowtie as low-memory alternative
+        elif "bowtie" not in config.skip_steps:
+            tools.append("bowtie")
+            config.logger.info("Running bowtie (low-memory mode) for read mapping")
+            
+            bowtie_index = str(config.output_dir / "bowtie_index")
+            os.makedirs(bowtie_index, exist_ok=True)
+            
+            # Build bowtie index
+            index_success = run_command_comp(
+                "bowtie-build",
+                positional_args=[
+                    str(config.output_dir / "rmdup_contigs.fasta"),
+                    str(config.output_dir / "bowtie_index/contigs")
+                ],
+                params={"threads": str(config.threads)},
+                logger=config.logger,
+                prefix_style='double'
+            )
+            
+            if index_success:
+                try:
+                    if len(interleaved) > 0:
+                        # Align paired-end interleaved reads
+                        align_success = run_command_comp(
+                            "bowtie",
+                            params={
+                                "p": str(config.threads),
+                                "S": True,
+                                "x": str(config.output_dir / "bowtie_index/contigs")
+                            },
+                            positional_args=[
+                                "--12", interleaved,
+                                str(config.output_dir / "assembly_bowtie_interleaved.sam")
+                            ],
+                            logger=config.logger,
+                            prefix_style='single'
+                        )
+                        if align_success and os.path.exists(str(config.output_dir / "assembly_bowtie_interleaved.sam")):
+                            run_command_comp(
+                                "pigz",
+                                params={"p": str(config.threads)},
+                                positional_args=[str(config.output_dir / "assembly_bowtie_interleaved.sam")],
+                                logger=config.logger,
+                                prefix_style='single'
+                            )
+                    
+                    if len(merged) > 0:
+                        # Align single-end/merged reads
+                        align_success = run_command_comp(
+                            "bowtie",
+                            params={
+                                "p": str(config.threads),
+                                "S": True,
+                                "x": str(config.output_dir / "bowtie_index/contigs")
+                            },
+                            positional_args=[merged, str(config.output_dir / "assembly_bowtie_merged_reads.sam")],
+                            logger=config.logger,
+                            prefix_style='single'
+                        )
+                        if align_success and os.path.exists(str(config.output_dir / "assembly_bowtie_merged_reads.sam")):
+                            run_command_comp(
+                                "pigz",
+                                params={"p": str(config.threads)},
+                                positional_args=[str(config.output_dir / "assembly_bowtie_merged_reads.sam")],
+                                logger=config.logger,
+                                prefix_style='single'
+                            )
+                except Exception as e:
+                    config.logger.warning(f"Failed to align reads to contigs: {e}")
+            else:
+                config.logger.error("Failed to build bowtie index, skipping alignment steps")
 
     config.logger.info(f"Finished assembly evaluation on: {contigs4eval}")
 
     if not config.keep_tmp:
         files_to_remove = [
             "tmp",
-            f"{config.output_dir}/all_interleaved.fq.gz",
-            f"{config.output_dir}/all_merged.fq.gz",
+            str(config.output_dir / "all_interleaved.fq.gz"),
+            str(config.output_dir / "all_merged.fq.gz"),
         ]
         folders_to_remove = [
-            f"{config.output_dir}/megahit_custom_out/intermediate_contigs"
+            str(config.output_dir / "megahit_custom_out/intermediate_contigs")
             ]
         for file in files_to_remove:
             if os.path.exists(file):
@@ -451,17 +594,16 @@ def assembly(input=None, paired_end=None, single_end=None, merged=None,
         for folder in folders_to_remove:
             if os.path.exists(folder):
                 shutil.rmtree(folder, ignore_errors=True)
-        if os.path.exists(f"{config.output_dir}/spades_meta_output"):
-            for spades_folder in os.listdir(f"{config.output_dir}/spades_meta_output"):
-                if Path(f"{config.output_dir}/spades_meta_output/{spades_folder}").is_dir():
-                    shutil.rmtree(f"{config.output_dir}/spades_meta_output/{spades_folder}")
+        if os.path.exists(str(config.output_dir / "spades_meta_output")):
+            for spades_folder in os.listdir(str(config.output_dir / "spades_meta_output")):
+                if Path(str(config.output_dir / "spades_meta_output") / spades_folder).is_dir():
+                    shutil.rmtree(str(config.output_dir / "spades_meta_output" / spades_folder))
 
     config.logger.info("Assembly process completed successfully.")
     config.logger.info(f"Final redundancy filtered contigs from the assemblers used are in {config.output_dir}/rmdup_contigs.fasta")
     config.logger.info(f"Reads unassembled from the assembly are in {config.output_dir}/assembly_bbw_unassembled.fq.gz")
     config.logger.info(f"Reads aligned to the assembly (interleaved and merged) are in {config.output_dir}/assembly_bowtie_interleaved.sam.gz and {config.output_dir}/assembly_bowtie_merged_reads.sam.gz")
 
-    # remind_citations(tools)
     with open(f"{config.log_file}","w") as f_out:
         f_out.write(remind_citations(tools,return_bibtex=True))
         
