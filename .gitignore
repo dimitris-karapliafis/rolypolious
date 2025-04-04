@@ -9,16 +9,11 @@ external_dependencies/
 external_dependencies/*
 data
 data/*
-
-obsolete/
-obsolete/*
-misc/bash_scripts/*
 __pycache__/*
 *.pyc
 __pycache__/
 **/__pycache__/**
 misc/exprimental/litrature_mining
-misc//obsolete
 build
 rolypoly/build/*
 *build/*
@@ -46,6 +41,10 @@ logs/
 # outputs
 **/tmp**
 **log.txt
+
+# Pixi environments
+.pixi
+*.egg-info
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -87,7 +86,6 @@ pip-log.txt
 pip-delete-this-directory.txt
 
 # Unit test / coverage reports
-tests/
 htmlcov/
 .tox/
 .nox/
