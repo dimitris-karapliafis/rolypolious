@@ -1,21 +1,6 @@
-"""Output file tracking and management for RolyPoly.
-
-This module provides the OutputTracker class for tracking and managing output files
-generated during RolyPoly's execution. It maintains information about file types,
-locations, and the commands that generated them.
-
-Example:
-    ```python
-    tracker = OutputTracker()
-    tracker.add_file("results.fasta", "assembly", "spades.py", False)
-    latest = tracker.get_latest_output("fasta")
-    ```
-"""
-
-from datetime import datetime
+# from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
-
 import polars as pl
 
 
@@ -40,6 +25,7 @@ class OutputTracker:
 
     def __init__(self):
         """Initialize an empty OutputTracker."""
+        import polars as pl
         self.df = pl.DataFrame(
             schema={
                 "filename": pl.Utf8,
@@ -80,6 +66,8 @@ class OutputTracker:
             )
             ```
         """
+        from datetime import datetime
+        import polars as pl
         absolute_path = Path(filename).resolve()
         file_size = absolute_path.stat().st_size
         file_type = file_type or self.get_file_type(filename)
@@ -147,6 +135,7 @@ class OutputTracker:
             # Returns: '/path/to/latest.fasta'
             ```
         """
+        import polars as pl
         filtered_df = (
             self.df.filter(pl.col("file_type") == file_type) if file_type else self.df
         )
@@ -164,6 +153,7 @@ class OutputTracker:
                  tracker.get_latest_non_merged_file()
             '/path/to/latest_individual.fasta'
         """
+        import polars as pl
         non_merged_files = self.df.filter(pl.col("is_merged") == False)
         return (
             non_merged_files.tail(1)["absolute_path"][0]
@@ -181,6 +171,7 @@ class OutputTracker:
                  tracker.get_latest_merged_file()
             '/path/to/latest_merged.fasta'
         """
+        import polars as pl
         merged_files = self.df.filter(pl.col("is_merged") == True)
         return (
             merged_files.tail(1)["absolute_path"][0]
@@ -205,6 +196,7 @@ class OutputTracker:
             # Output: 'assembly'
             ```
         """
+        import polars as pl
         file_info = self.df.filter(pl.col("filename") == filename)
         return file_info.to_dicts()[0] if file_info.height > 0 else None
 
@@ -224,6 +216,7 @@ class OutputTracker:
                 print(file["filename"])
             ```
         """
+        import polars as pl
         return self.df.filter(pl.col("command_name") == command_name).to_dicts()
 
     def to_csv(self, output_file: str) -> None:
@@ -250,6 +243,7 @@ class OutputTracker:
         Example:
                  tracker = OutputTracker.from_csv("output_tracking.csv")
         """
+        import polars as pl
         tracker = cls()
         tracker.df = pl.read_csv(input_file)
         return tracker

@@ -1,21 +1,18 @@
 import os
 import shutil
-import signal
-import subprocess
-import time
+# import signal
+# import subprocess
+# import time
 from pathlib import Path
 from typing import Dict, Tuple, Union
-
 import rich_click as click
 from rich.console import Console
-
 from rolypoly.utils.citation_reminder import remind_citations
 from rolypoly.utils.config import BaseConfig
-from rolypoly.utils.loggit import log_start_info
+# from rolypoly.utils.loggit import log_start_info
 from rolypoly.utils.output_tracker import OutputTracker
 from rolypoly.utils.various import change_directory, ensure_memory
 
-# import ast
 
 global tools
 tools = ["bbmap", "seqkit", "datasets"]
@@ -110,20 +107,18 @@ class ReadFilterConfig(BaseConfig):
                         f"Warning: Unknown step '{step}' in override_parameters. Ignoring."
                     )
 
-
 def timeout_handler(signum, frame):
-    # os.kill(os.getpid(), signal.SIGKILL)
     raise TimeoutError("Function call timed out")
-
 
 def check_existing_file(output_file: Path, min_size: int = 20) -> bool:
     return output_file.exists() and output_file.stat().st_size > min_size
-
 
 def process_reads(
     config: ReadFilterConfig, output_tracker: OutputTracker
 ) -> OutputTracker:
     """Main function to orchestrate the preprocessing steps."""
+    import signal
+    from rich.spinner import SPINNERS, Spinner
     config.logger.info(f"Checking dependencies    ")
     with change_directory(config.tmp_dir):
         config.save("rp_filter_reads_config.json")  # type: ignore
@@ -155,7 +150,7 @@ def process_reads(
         ]
 
         current_input = fastq_file
-        from rich.spinner import SPINNERS, Spinner  # type: ignore
+        from rich.spinner import SPINNERS, Spinner
 
         SPINNERS["myspinner"] = {"interval": 2500, "frames": ["🦠 ", "🧬 ", "🔬 "]}
         console = Console(width=150)
@@ -372,6 +367,7 @@ def filter_reads(
     Process RNA-seq (transcriptome, RNA virome, metatranscriptomes) Illumina raw reads.
     Removes host reads, synthetic artifacts, and unknown DNA, corrects sequencing errors, trims adapters and low quality reads.
     """
+    from rolypoly.utils.loggit import log_start_info
 
     # from bbmapy import bbduk, bbmerge, clumpify, filterbytile, bbmap, rename, reformat
     # from rolypoly.utils.fax import fetch_genomes, mask_dna
@@ -427,6 +423,8 @@ def filter_reads(
 
 def generate_reports(file_name: str, threads: int, skip_existing: bool, logger):
     import glob
+    import subprocess
+    import glob
 
     # Generate FastQC report
     fastqc_output = Path("FastQC_post_trim_reads")
@@ -468,7 +466,8 @@ def identify_read_pair_files_in_folder(
     input: Union[str, Path],
 ) -> Dict[str, list[Path]]:
     """Identify if the input is paired end or single end."""
-
+    import glob
+    from pathlib import Path
     import glob
     from pathlib import Path
 
@@ -507,8 +506,7 @@ def identify_read_pair_files_in_folder(
 
 
 def handle_input_fastq(config: ReadFilterConfig) -> tuple[Path, str]:
-    ### TODO: Test format of each fastq/gz (is paired end or single end, interleaved or not, gzipped or not)
-
+    from bbmapy import reformat
     from bbmapy import reformat
 
     # Create a temporary file for intermediate concatenation
@@ -586,7 +584,8 @@ def filter_by_tile(
     input_file: Path, config: ReadFilterConfig, output_tracker: OutputTracker
 ) -> Path:
     """Filter reads by tile."""  # this commands tends to break so it has extra logging and is skipped if error occurs.
-
+    from bbmapy import filterbytile
+    import time
     from bbmapy import filterbytile
 
     config.logger.info(f"Starting: Filter by Tile for file {input_file}")
@@ -633,9 +632,9 @@ def filter_known_dna(
     input_file: Path, config: ReadFilterConfig, output_tracker: OutputTracker
 ) -> Path:
     """Filter known DNA sequences."""
-
     from bbmapy import bbduk
-
+    from rolypoly.utils.fax import mask_dna
+    from bbmapy import bbduk
     from rolypoly.utils.fax import mask_dna
 
     ref_file = str(config.known_dna)
@@ -678,7 +677,7 @@ def decontaminate_rrna(
     input_file: Path, config: ReadFilterConfig, output_tracker: OutputTracker
 ) -> Path:
     """Decontaminate rRNA sequences."""
-
+    from bbmapy import bbduk
     from bbmapy import bbduk
 
     output_file = f"decontaminate_rrna_{config.file_name}.fq.gz"
@@ -710,7 +709,7 @@ def fetch_and_mask_genomes(
     input_file: Path, config: ReadFilterConfig, output_tracker: OutputTracker
 ) -> Union[str, Path]:
     """Fetch and mask genomes."""
-
+    from rolypoly.utils.fax import fetch_genomes, mask_dna
     from rolypoly.utils.fax import fetch_genomes, mask_dna
 
     if "filter_rp_identified_DNA_genomes" not in config.skip_steps:
@@ -752,7 +751,7 @@ def filter_identified_dna(
     input_file: Path, config: ReadFilterConfig, output_tracker: OutputTracker
 ) -> Union[Path, str]:
     """Filter fetched DNA genomes."""
-
+    from bbmapy import bbduk
     from bbmapy import bbduk
 
     host_file = fetch_and_mask_genomes(input_file, config, output_tracker)
@@ -788,7 +787,7 @@ def dedupe(
     phase="first",
 ) -> Path:
     """Remove duplicate reads."""
-
+    from bbmapy import clumpify
     from bbmapy import clumpify
 
     if phase == "first":
@@ -825,7 +824,7 @@ def trim_adapters(
     input_file: Path, config: ReadFilterConfig, output_tracker: OutputTracker
 ) -> Path:
     """Trim adapters from reads."""
-
+    from bbmapy import bbduk
     from bbmapy import bbduk
 
     output_file = f"trim_adapters_{config.file_name}.fq.gz"
@@ -858,7 +857,7 @@ def remove_synthetic_artifacts(
     input_file: Path, config: ReadFilterConfig, output_tracker: OutputTracker
 ) -> Path:
     """Remove synthetic artifacts (phix etc) from reads."""
-
+    from bbmapy import bbduk
     from bbmapy import bbduk
 
     output_file = f"remove_synthetic_artifacts_{config.file_name}.fq.gz"
@@ -888,7 +887,7 @@ def entropy_filter(
     input_file: Path, config: ReadFilterConfig, output_tracker: OutputTracker
 ) -> Path:
     """Apply entropy filter to reads."""
-
+    from bbmapy import bbduk
     from bbmapy import bbduk
 
     output_file = f"entropy_filter_{config.file_name}.fq.gz"
@@ -917,7 +916,7 @@ def error_correct_1(
     input_file: Path, config: ReadFilterConfig, output_tracker: OutputTracker
 ) -> Path:
     """Perform error correction on reads."""
-
+    from bbmapy import bbmerge
     from bbmapy import bbmerge
 
     output_file = f"error_correct_1{config.file_name}.fq.gz"
@@ -946,7 +945,7 @@ def error_correct_2(
     input_file: Path, config: ReadFilterConfig, output_tracker: OutputTracker
 ) -> Path:
     """Perform error correction on reads."""
-
+    from bbmapy import clumpify
     from bbmapy import clumpify
 
     output_file = f"error_correct_2{config.file_name}.fq.gz"
@@ -975,7 +974,7 @@ def merge_reads(
     input_file: Path, config: ReadFilterConfig, output_tracker: OutputTracker
 ) -> Tuple[Path, Path]:
     """Merge paired-end reads."""
-
+    from bbmapy import bbmerge
     from bbmapy import bbmerge
 
     output_file = f"merged_{config.file_name}.fq.gz"
@@ -1010,7 +1009,7 @@ def quality_trim_unmerged(
     input_file: Path, config: ReadFilterConfig, output_tracker: OutputTracker
 ) -> Path:
     """Quality trim unmerged reads."""
-
+    from bbmapy import bbduk
     from bbmapy import bbduk
 
     input_file = Path(output_tracker.get_latest_non_merged_file())

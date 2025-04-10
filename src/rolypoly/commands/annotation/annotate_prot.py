@@ -1,11 +1,9 @@
 ### place holder ###
 import os
 from pathlib import Path
-
 import polars as pl
 import rich_click as click
 from rich.console import Console
-
 from rolypoly.utils.config import BaseConfig
 
 
@@ -129,9 +127,9 @@ def annotate_prot(
     genetic_code,
 ):
     """Identify coding sequences (ORFs) in a genome, and attempt to predict their translated seq (protein) function via (py)hmmsearches against a collection of DBs (or user supplied one)"""
-    # Import modules needed only in this function
     import json
-
+    from rolypoly.utils.various import ensure_memory
+    import json
     from rolypoly.utils.various import ensure_memory
 
     config = ProteinAnnotationConfig(
@@ -202,6 +200,7 @@ def predict_orfs_with_pyrodigal(config):
 def predict_orfs_with_six_frame(config):
     """Translate 6-frame reading frames of a DNA sequence using seqkit."""
     from rolypoly.utils.various import run_command_comp
+    from rolypoly.utils.various import run_command_comp
 
     run_command_comp(
         "seqkit",
@@ -223,7 +222,7 @@ def predict_orfs_with_six_frame(config):
 
 def search_protein_domains_hmmscan(config):
     """Search protein domains using hmmscan."""
-    # Import modules needed only in this function
+    from rolypoly.utils.fax import search_hmmdb
     from rolypoly.utils.fax import search_hmmdb
 
     search_hmmdb(
@@ -242,7 +241,8 @@ def search_protein_domains_hmmscan(config):
 def predict_orfs_with_orffinder(config):
     """Predict ORFs using ORFfinder."""
     from shutil import which
-
+    from rolypoly.utils.various import run_command_comp
+    from shutil import which
     from rolypoly.utils.various import run_command_comp
 
     if not which("ORFfinder"):
@@ -303,6 +303,7 @@ def search_protein_domains(config):
 def search_protein_domains_hmmsearch(config, input_fasta, output_file):
     """Search protein domains using hmmsearch."""
     from rolypoly.utils.various import run_command_comp
+    from rolypoly.utils.various import run_command_comp
 
     run_command_comp(
         "hmmsearch",
@@ -314,6 +315,7 @@ def search_protein_domains_hmmsearch(config, input_fasta, output_file):
 
 def search_protein_domains_mmseqs2(config, input_fasta, output_file):
     """Search protein domains using mmseqs2."""
+    from rolypoly.utils.various import run_command_comp
     from rolypoly.utils.various import run_command_comp
 
     run_command_comp(
@@ -332,6 +334,7 @@ def search_protein_domains_mmseqs2(config, input_fasta, output_file):
 
 def search_protein_domains_diamond(config, input_fasta, output_file):
     """Search protein domains using DIAMOND."""
+    from rolypoly.utils.various import run_command_comp
     from rolypoly.utils.various import run_command_comp
 
     run_command_comp(
@@ -355,6 +358,7 @@ def predict_protein_function(config):
 
 
 def combine_results(config):
+    import polars as pl
     config.logger.info("Combining annotation results")
 
     orf_file = config.output_dir / "predicted_orfs.faa"
@@ -372,6 +376,7 @@ def combine_results(config):
 
 
 def process_orf_data(orf_file):
+    import polars as pl
     # Process the ORF file and return a DataFrame
     orf_data = pl.read_csv(
         orf_file,
@@ -392,6 +397,7 @@ def process_orf_data(orf_file):
 
 
 def process_domain_data(domain_file, search_tool):
+    import polars as pl
     if search_tool == "hmmsearch":
         return process_hmmsearch_data(domain_file)
     elif search_tool == "mmseqs2":
@@ -403,6 +409,7 @@ def process_domain_data(domain_file, search_tool):
 
 
 def process_hmmsearch_data(domain_file):
+    import polars as pl
     df = pl.read_csv(
         domain_file,
         separator="\t",
@@ -422,6 +429,7 @@ def process_hmmsearch_data(domain_file):
 
 
 def process_mmseqs2_data(domain_file):
+    import polars as pl
     df = pl.read_csv(
         domain_file,
         separator="\t",
@@ -441,6 +449,7 @@ def process_mmseqs2_data(domain_file):
 
 
 def process_diamond_data(domain_file):
+    import polars as pl
     df = pl.read_csv(
         domain_file,
         separator="\t",
@@ -461,7 +470,7 @@ def process_diamond_data(domain_file):
 
 def process_error(line):
     """Process error messages."""
-    # Import modules needed only in this function
+    import logging
     import logging
 
     logging.error(line.strip())
@@ -469,7 +478,7 @@ def process_error(line):
 
 def process_output(line):
     """Process output messages."""
-    # Import modules needed only in this function
+    import logging
     import logging
 
     logging.info(line.strip())

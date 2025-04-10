@@ -1,9 +1,5 @@
-##################################################################################################
-# Written by Uri Neri
-# Description: Virus mapping/search wrapper - takes in (presumably filtered) reads, and maps them to a virus database.
 import os
 from pathlib import Path as pt
-
 import rich_click as click
 from rich.console import Console
 
@@ -48,10 +44,12 @@ console = Console()
 )
 def virus_mapping(threads, memory, output, keep_tmp, db, db_path, log_file, input):
     """MMseqs2 Virus mapping/search wrapper - takes in reads/contigs (i.e. nucs), and search them against precompiled virus databases OR user-supplied databases."""
-    # Import modules needed only in this function
     import shutil
     import subprocess
-
+    from rolypoly.utils.citation_reminder import remind_citations
+    from rolypoly.utils.loggit import log_start_info, setup_logging
+    import shutil
+    import subprocess
     from rolypoly.utils.citation_reminder import remind_citations
     from rolypoly.utils.loggit import log_start_info, setup_logging
 

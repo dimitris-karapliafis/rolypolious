@@ -1,10 +1,8 @@
 import os
 from pathlib import Path
-
 import polars as pl
 import rich_click as click
 from rich.console import Console
-
 from rolypoly.utils.citation_reminder import remind_citations
 from rolypoly.utils.config import BaseConfig
 from rolypoly.utils.various import run_command_comp
@@ -181,9 +179,9 @@ def annotate_RNA(
     """Predict viral sequence RNA secondary structure, search for ribozymes, IRES, tRNAs, and other RNA structural elements.
     By default, the following steps are run in the following order: predict_secondary_structure, search_ribozymes, detect_ires, predict_trnas, search_rna_elements.
     Use --skip-steps to skip specific steps."""
-
     import json
-
+    from rolypoly.utils.various import ensure_memory
+    import json
     from rolypoly.utils.various import ensure_memory
 
     config = RNAAnnotationConfig(
@@ -274,7 +272,8 @@ def predict_secondary_structure(config):
 
 def predict_secondary_structure_rnafold(config, input_fasta, output_file):
     """Predict RNA secondary structure using RNAfold."""
-
+    import RNA
+    from needletail import parse_fastx_file
     import RNA
     from needletail import parse_fastx_file
 
@@ -317,9 +316,9 @@ def predict_secondary_structure_rnafold(config, input_fasta, output_file):
 
 def predict_secondary_structure_rnastructure(config, input_fasta, output_file):
     """Predict RNA secondary structure using RNAstructure."""
-
     import subprocess
-
+    from needletail import parse_fastx_file
+    import subprocess
     from needletail import parse_fastx_file
 
     with open(output_file, "w") as out_f:
@@ -373,14 +372,16 @@ def predict_secondary_structure_rnastructure(config, input_fasta, output_file):
 
 def predict_secondary_structure_linearfold(config, input_fasta, output_file):
     """Predict RNA secondary structure using LinearFold."""
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    from needletail import parse_fastx_file
     import tempfile
     from concurrent.futures import ThreadPoolExecutor, as_completed
-
     from needletail import parse_fastx_file
-
     from rolypoly.utils.various import run_command_comp
 
     def process_sequence(record):
+        import tempfile
+        from rolypoly.utils.various import run_command_comp
         sequence = str(record.seq).replace("T", "U")
         try:
             with tempfile.NamedTemporaryFile(mode="w+", delete=True) as temp_in:
@@ -437,7 +438,9 @@ def search_ribozymes(config):
     """Search for ribozymes using Rfam or a custom cm database."""
     import os
     from pathlib import Path
-
+    from rolypoly.utils.various import run_command_comp
+    import os
+    from pathlib import Path
     from rolypoly.utils.various import run_command_comp
 
     config.logger.info(f"Searching for ribozymes using {config.cm_db}")
@@ -494,7 +497,8 @@ def detect_ires(config):
 
 def detect_ires_iresfinder(config, input_fasta, output_file):
     import shutil
-
+    from rolypoly.utils.various import run_command_comp
+    import shutil
     from rolypoly.utils.various import run_command_comp
 
     # Check if IRESfinder is available in PATH
@@ -527,7 +531,9 @@ def detect_ires_irespy(config, input_fasta, output_file):
     """Detect IRES elements using IRESpy."""
     import polars as pl
     from needletail import parse_fastx_file
-
+    from rolypoly.utils.various import run_command_comp
+    import polars as pl
+    from needletail import parse_fastx_file
     from rolypoly.utils.various import run_command_comp
 
     with open(input_fasta, "r") as f:
@@ -583,6 +589,7 @@ def predict_trnas(config):
 def predict_trnas_with_aragorn(config):
     """Predict tRNAs using Aragorn."""
     from rolypoly.utils.various import run_command_comp
+    from rolypoly.utils.various import run_command_comp
 
     config.logger.info("Predicting tRNAs")
     input_fasta = config.input
@@ -617,6 +624,7 @@ def predict_trnas_with_aragorn(config):
 
 def predict_trnas_with_tRNAscan(config):
     """Predict tRNAs using tRNAscan-SE."""
+    from rolypoly.utils.various import run_command_comp
     from rolypoly.utils.various import run_command_comp
 
     config.logger.info("Predicting tRNAs")
@@ -659,7 +667,9 @@ def predict_trnas_with_tRNAscan(config):
 def search_rna_elements(config):
     """Search for RNA structural elements using lightmotif."""
     from pathlib import Path
-
+    import lightmotif
+    from needletail import parse_fastx_file
+    from pathlib import Path
     import lightmotif
     from needletail import parse_fastx_file
 
@@ -763,7 +773,8 @@ def process_ribozymes_data(config, ribozymes_file):
     Returns an empty DataFrame if the file is empty or has no valid data.
     """
     import polars as pl
-
+    from rolypoly.utils.various import read_fwf
+    import polars as pl
     from rolypoly.utils.various import read_fwf
 
     if not os.path.exists(ribozymes_file) or os.path.getsize(ribozymes_file) == 0:
@@ -869,6 +880,7 @@ def process_ribozymes_data(config, ribozymes_file):
 
 
 def process_ires_iresfinder(ires_file):
+    import polars as pl
     if ires_file.is_file():
         return pl.read_csv(ires_file, separator="\t").select(
             [
@@ -886,6 +898,7 @@ def process_ires_iresfinder(ires_file):
 
 
 def process_ires_irespy(ires_file):
+    import polars as pl
     if ires_file.is_file():
         return pl.read_csv(ires_file, separator="\t").select(
             [
@@ -903,6 +916,7 @@ def process_ires_irespy(ires_file):
 
 
 def process_trnas_data_tRNAscan_SE(trnas_file):
+    import polars as pl
     if trnas_file.is_file() and os.path.getsize(trnas_file) > 0:
         return pl.read_csv(trnas_file, separator="\t", has_header=False).select(
             [
@@ -921,6 +935,7 @@ def process_trnas_data_tRNAscan_SE(trnas_file):
 
 
 def process_trnas_data_aragorn(trnas_file):
+    import polars as pl
     if trnas_file.is_file() and os.path.getsize(trnas_file) > 0:
         return pl.read_csv(trnas_file, separator="\t", has_header=False).select(
             [
@@ -939,6 +954,7 @@ def process_trnas_data_aragorn(trnas_file):
 
 
 def process_rna_elements_data(rna_elements_file):
+    import polars as pl
     if rna_elements_file.is_file():
         return pl.read_csv(rna_elements_file, separator="\t").select(
             [
@@ -957,6 +973,7 @@ def process_rna_elements_data(rna_elements_file):
 
 
 def read_multiDBN_to_dataframe(MultiDBN_file):
+    import polars as pl
     if not MultiDBN_file.is_file():
         return pl.DataFrame()
 
@@ -997,6 +1014,8 @@ def read_multiDBN_to_dataframe(MultiDBN_file):
 
 def combine_results(config):
     """Combine annotation results from different steps."""
+    import polars as pl
+    from rolypoly.utils.various import vstack_easy
     from rolypoly.utils.various import vstack_easy
 
     config.logger.info("Combining annotation results")
@@ -1100,6 +1119,7 @@ def combine_results(config):
 
 def write_combined_results_to_gff(config, combined_data):
     from rolypoly.utils.fax import add_fasta_to_gff
+    from rolypoly.utils.fax import add_fasta_to_gff
 
     output_file = config.output_dir / "combined_annotations.gff3"
     with open(output_file, "w") as f:
@@ -1192,6 +1212,7 @@ def convert_record_to_gff3_record(
 
 
 def add_missing_gff_columns(dataframe):
+    import polars as pl
     # check if the dataframe has the columns 'attributes',"source", "type", "score", "strand", "phase", if not add them
     # cols_to_check = ['attributes', 'source', 'type', 'score', 'strand', 'phase']
     if "source" not in dataframe.columns:

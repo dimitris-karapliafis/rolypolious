@@ -1,13 +1,10 @@
 ### place holder ###
 
 import os
-
 import rich_click as click
 from rich.console import Console
 
-from rolypoly.utils.loggit import setup_logging
-
-console = Console()
+# console = Console()
 
 
 @click.command()
@@ -32,6 +29,7 @@ console = Console()
 )
 def predict_host_range(input, output, threads, log_file):
     """WIP WIP WIP Predict a viral seq host range - caution! this is not definitive"""
+    from rolypoly.utils.loggit import setup_logging
 
     logger = setup_logging(log_file)
     logger.info("Starting to predict      ")

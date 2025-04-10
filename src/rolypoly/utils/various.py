@@ -2,7 +2,6 @@ import os
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Dict, Generator, List, Optional, Union
-
 from rich.console import Console
 
 console = Console()
@@ -82,6 +81,13 @@ def extract(
          extract("data.tar.gz", "output_dir")
          extract("archive.zip")  # Extracts to same directory
     """
+    import bz2
+    import gzip
+    import lzma
+    import shutil
+    import subprocess
+    import tarfile
+    import zipfile
     import bz2
     import gzip
     import lzma
@@ -169,7 +175,8 @@ def fetch_and_extract(
          fetch_and_extract("https://example.com/file.txt", "file.txt")  # No extraction
     """
     import shutil
-
+    import requests
+    import shutil
     import requests
 
     console.print(f"Fetching {url}")
@@ -194,6 +201,7 @@ def parse_memory(mem_str) -> int:
     Raises:
         ValueError: If the memory format is invalid.
     """
+    import re
     import re
 
     units = {
@@ -258,6 +266,7 @@ def ensure_memory(memory: str, file_path: Optional[str] = None) -> Dict[str, str
         Dict[str, str]: Dictionary with various unit representations of the memory.
     """
     import psutil
+    import psutil
 
     requested_memory_bytes = parse_memory(memory)
     available_memory_bytes = psutil.virtual_memory().total
@@ -302,6 +311,7 @@ def run_bash_script_with_time(script_name: str) -> Dict[str, str]:
         Dict[str, str]: Dictionary containing time information.
     """
     import subprocess
+    import subprocess
 
     time_command = [
         "/usr/bin/time",
@@ -324,6 +334,7 @@ def run_bash_script_with_time(script_name: str) -> Dict[str, str]:
 
 def extract_zip(zip_file):
     """Extract a zip file."""
+    import zipfile
     import zipfile
 
     try:
@@ -365,6 +376,7 @@ def parse_filter(filter_str):
             ['&']
         )
     """
+    import re
     import re
 
     # Remove any surrounding brackets
@@ -428,6 +440,7 @@ def apply_filter(df, filter_str):
         └────────┴───────┘
     """
     import polars as pl
+    import polars as pl
 
     conditions, operators = parse_filter(filter_str)
     if not conditions:
@@ -475,6 +488,7 @@ def find_most_recent_folder(path):
              print(f"Most recent folder: {newest}")
     """
     import glob
+    import glob
 
     # Get a list of all directories in the specified path
     folders = [f for f in glob.glob(os.path.join(path, "*")) if os.path.isdir(f)]
@@ -502,6 +516,7 @@ def move_contents_to_parent(folder, overwrite=True):
     Example:
              move_contents_to_parent("subdir", overwrite=False)
     """
+    import shutil
     import shutil
 
     parent_dir = os.path.dirname(folder)
@@ -613,6 +628,7 @@ def run_command(
              )
     """
     import subprocess
+    import subprocess
 
     if skip_existing == True:
         if Path(to_check).exists():
@@ -681,6 +697,7 @@ def create_output_dataframe():
              print(df.schema)
     """
     import polars as pl
+    import polars as pl
 
     return pl.DataFrame(
         schema={
@@ -716,6 +733,7 @@ def add_output_file(df, filename, command_name, command, file_type):
                  "fasta"
              )
     """
+    import polars as pl
     import polars as pl
 
     absolute_path = os.path.abspath(filename)
@@ -757,6 +775,7 @@ def read_fwf(filename, widths, columns, dtypes, comment_prefix=None, **kwargs):
                  [pl.Utf8, pl.Int64]
              )
     """
+    import polars as pl
     import polars as pl
 
     # if widths is None:
@@ -864,6 +883,7 @@ def get_latest_output(df, file_type=None):
         print(f"Latest FASTA file: {latest}")
     """
     import polars as pl
+    import polars as pl
 
     if file_type:
         filtered_df = df.filter(pl.col("file_type") == file_type)
@@ -911,6 +931,7 @@ def cast_cols_to_match(df1_to_cast, df2_to_match):
         # cast_df now has integer columns instead of strings
         ```
     """
+    import polars as pl
     import polars as pl
 
     for col in df2_to_match.columns:
@@ -1002,7 +1023,12 @@ def run_command_comp(
     from logging import INFO, Logger, StreamHandler
     from pathlib import Path
     from time import sleep, time
-
+    from psutil import NoSuchProcess, Process, cpu_percent
+    import subprocess
+    import sys
+    from logging import INFO, Logger, StreamHandler
+    from pathlib import Path
+    from time import sleep, time
     from psutil import NoSuchProcess, Process, cpu_percent
 
     if logger is None:

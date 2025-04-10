@@ -1,10 +1,8 @@
 import os
 from pathlib import Path
-
 import rich_click as click
 from rich.console import Console
-
-from rolypoly.utils.loggit import setup_logging
+# from rolypoly.utils.loggit import setup_logging
 
 # import polars as pl
 
@@ -39,6 +37,7 @@ console = Console()
 )
 def predict_characteristics(input, output, database, threads, log_file):
     """WIP WIP WIP Predict characteristics based on annotation and ""taxonomy"" results, and if possible by literature mined data."""
+    from rolypoly.utils.loggit import setup_logging
 
     logger = setup_logging(log_file)
     logger.info("Starting virus characteristic prediction    ")

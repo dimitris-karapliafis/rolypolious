@@ -1,10 +1,8 @@
-import json
+# import json
 import os
 from pathlib import Path
-
 import rich_click as click
 from rich.console import Console
-
 from rolypoly.commands.annotation.annotate_prot import (
     ProteinAnnotationConfig,
     process_protein_annotations,
@@ -15,13 +13,11 @@ from rolypoly.commands.annotation.annotate_RNA import (
 )
 from rolypoly.utils.citation_reminder import remind_citations
 from rolypoly.utils.config import BaseConfig
-
-# from rolypoly.utils.various import ensure_memory
-from rolypoly.utils.loggit import log_start_info
+# from rolypoly.utils.loggit import log_start_info
 
 console = Console(width=150)
 global tools
-tools = []
+# tools = []
 
 
 class AnnotationConfig(BaseConfig):
@@ -146,6 +142,8 @@ def annotate(
     search_tool,
 ):
     """Functionally and structurally annotate RNA viral sequence(s) (Wrapper for annotate_prot, annotate_RNA)"""
+    import json
+    from rolypoly.utils.loggit import log_start_info
     override_params = json.loads(override_parameters) if override_parameters else {}
     skip_steps_list = skip_steps.split(",") if skip_steps else []
     output_path = Path(output).resolve()

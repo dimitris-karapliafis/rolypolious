@@ -1,8 +1,7 @@
-import json
+# import json
 import os
 from pathlib import Path
 from typing import List, Tuple
-
 import rich_click as click
 from rich.console import Console
 
@@ -52,6 +51,7 @@ def add_command(
 
     Can be run either interactively or with CLI arguments.
     """
+    import json
     package_src = Path(package_src).resolve()
     commands_dir = package_src / "src" / "rolypoly" / "commands"
 

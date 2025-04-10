@@ -1,11 +1,9 @@
 import os
-
 import rich_click as click
 from rich.console import Console
+# from rolypoly.utils.loggit import setup_logging
 
-from rolypoly.utils.loggit import setup_logging
-
-console = Console()
+# console = Console()
 
 
 @click.command()
@@ -30,6 +28,7 @@ console = Console()
 )
 def summarise(input, output, threads, log_file):
     """WIP WIP WIP Summarize RolyPoly results."""
+    from rolypoly.utils.loggit import setup_logging
 
     logger = setup_logging(log_file)
     logger.info("Starting to summarise RolyPoly     ")

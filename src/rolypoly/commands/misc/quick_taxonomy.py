@@ -1,14 +1,12 @@
 # WIP WIP WIP
 from pathlib import Path
-
 import rich_click as click
 from rich.console import Console
-
 from rolypoly.utils.citation_reminder import remind_citations
 from rolypoly.utils.fax import search_hmmdb
-from rolypoly.utils.loggit import log_start_info, setup_logging
+# from rolypoly.utils.loggit import log_start_info, setup_logging
 
-console = Console()
+# console = Console()
 
 
 def parse_marker_results(marker_file):
@@ -21,7 +19,8 @@ def parse_marker_results(marker_file):
         pl.DataFrame: DataFrame with marker results
     """
     import json
-
+    import polars as pl
+    import json
     import polars as pl
 
     if marker_file.endswith(".tsv"):
@@ -46,8 +45,10 @@ def run_genomad_hmm_search(input_fasta, output_dir, threads, logger):
     Returns:
         pl.DataFrame: DataFrame with HMM search results
     """
+    from rolypoly.utils.fax import search_hmmdb
     import os
-
+    import polars as pl
+    import os
     import polars as pl
 
     hmm_db = (
@@ -101,6 +102,7 @@ def assign_taxonomy(sequence_id, markers, hmm_results, min_score=50):
     Returns:
         dict: Taxonomy assignment
     """
+    import polars as pl
     import polars as pl
 
     # Filter results by score
@@ -156,6 +158,7 @@ def summarize_taxonomy(assignments):
         dict: Summary statistics
     """
     from collections import defaultdict
+    from collections import defaultdict
 
     total = len(assignments)
     assigned = sum(1 for a in assignments if a["taxonomy"] != "Unknown")
@@ -207,8 +210,12 @@ def quick_taxonomy(
     """
     Rapid taxonomy assignment for viral sequences using marker search results and genomad RNA viral HMMs
     """
+    from rolypoly.utils.loggit import log_start_info, setup_logging
     import json
-
+    import polars as pl
+    from needletail import parse_fastx_file
+    from rich.table import Table
+    import json
     import polars as pl
     from needletail import parse_fastx_file
     from rich.table import Table

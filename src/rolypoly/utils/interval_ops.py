@@ -1,33 +1,17 @@
-"""Interval operations and manipulation utilities for RolyPoly.
-
-Utilities for genomic intervals - including overlap detection, merging, clipping, and filtering operations.
-Currently relies on pyranges, genomicranges, iranges, polars, intervaltree. and maybe more.
-TODO: make this more robust and less dependent on external libraries.
-
-
-Example:
-    ```python
-    df = pl.DataFrame({
-        "start": [1, 5, 10],
-        "end": [4, 8, 15],
-        "id": ["a", "b", "c"]
-    })
-    resolved = consolidate_hits(df, rank_columns="-score")
-    ```
-"""
-
 import os
 import warnings
-
 import rich_click as click
 
 warnings.filterwarnings(
     "ignore", category=UserWarning, module="numpy"
 )  # see https://moyix.blogspot.com/2022/09/someones-been-messing-with-my-subnormals.html
 from typing import List, Optional, Tuple, Union
-
 import intervaltree as itree
 import polars as pl
+
+
+# Currently relies on pyranges, genomicranges, iranges, polars, intervaltree. and maybe more.
+# TODO: make this more robust and less dependent on external libraries.
 
 
 @click.command(name="resolve_overlaps")
@@ -169,8 +153,13 @@ def consolidate_hits(
 ):
     """Resolves overlaps in a tabular hit table file or polars dataframe.
     Notes: some flags are mutually exclusive, e.g. you cannot set both split and merge, or rather - if you do that, you'll get unexpected results."""
-
-    # Import modules needed only in this function
+    import polars as pl
+    import pyranges as pr
+    from genomicranges import (
+        GenomicRanges,  # broken until iranges pulls https://github.com/BiocPy/IRanges/pull/44 and the stack is updated.
+    )
+    from iranges import IRanges
+    from numpy import unique as nunique
     import polars as pl
     import pyranges as pr
     from genomicranges import (
@@ -405,6 +394,7 @@ def interval_tree_to_df(tree: itree.IntervalTree) -> pl.DataFrame:
         df = interval_tree_to_df(tree)
         ```
     """
+    import polars as pl
     return pl.DataFrame(
         {
             "start": [interval.begin for interval in tree],
@@ -443,6 +433,7 @@ def clip_overlapping_ranges_pl(
     :param min_overlap: Minimum overlap to consider for clipping
     :return: A DataFrame with clipped ranges. The start and end of the ranges are updated to remove the overlap, so that the first range (i.e. index of it is lower) is the one that is the one not getting clipped, and other are trimmed to not overlap with it.
     """
+    import polars as pl
     df = get_all_overlaps_pl(input_df, min_overlap=min_overlap, id_col=id_col)  # type: ignore
     df = df.with_columns(
         pl.col("overlapping_intervals").list.len().alias("n_overlapping")
@@ -493,6 +484,7 @@ def get_all_envelopes_pl(
     :param id_col: The column name to use for the interval IDs (if none, will use row index). Should not have duplicates.
     :return: A DataFrame with an additional 'enveloping_intervals' column, containing lists of ids (if id_col is provided) or row indices of the entries that envelope this row's start and end.
     """
+    import polars as pl
     b = False
     if id_col is None:
         input_df = input_df.with_row_index(name="intops_id")
@@ -542,6 +534,7 @@ def drop_all_contained_intervals_pl(input_df: pl.DataFrame) -> pl.DataFrame:
         result = drop_all_contained_intervals_pl(df)
         ```
     """
+    import polars as pl
     id_col = "daci_pl"
     input_df = input_df.with_row_index(name=id_col)
     df = input_df.filter(pl.col("start") != pl.col("end"))  # points throw errors
@@ -575,6 +568,7 @@ def get_all_overlaps_pl(
         result = get_all_overlaps_pl(df, min_overlap=2)
         ```
     """
+    import polars as pl
     if id_col is None:
         input_df = input_df.with_row_index(name="intops_id")
         id_col = "intops_id"
@@ -648,6 +642,7 @@ def convert_back_columns(
     q2_col: str,
 ) -> pl.DataFrame:
     """Rename the rank columns back to the original names."""
+    import polars as pl
     rename_dict = {old: new for old, new in zip(rank_list_renamed, rank_list)}
     rename_dict["Chromosome"] = query_id_col
     rename_dict["Start"] = q1_col
@@ -677,6 +672,7 @@ def name_cols_for_gr(
     df: pl.DataFrame, q1_col: str, q2_col: str, query_id_col: str
 ) -> pl.DataFrame:
     """Name columns for use with genomicranges."""
+    import polars as pl
     rename_dict = {q1_col: "start", q2_col: "end", query_id_col: "seqnames"}
     df = df.with_columns(
         pl.col(q2_col) - pl.col(q1_col).alias("width"),

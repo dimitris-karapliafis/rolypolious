@@ -1,22 +1,9 @@
-"""Logging configuration and utilities for RolyPoly.
-
-This module provides functions for setting up and configuring logging in RolyPoly,
-including both file and console logging with rich formatting.
-
-Example:
-    ```python
-    logger = setup_logging("my_log.log", log_level=logging.DEBUG)
-    logger.info("Starting process    ")
-    ```
-"""
-
 import logging
-import subprocess
-from ast import Dict
+# import subprocess
+from typing import Dict
 from pathlib import Path
-from sys import argv as sys_argv
+# from sys import argv as sys_argv
 from typing import Union
-
 from rich.console import Console
 from rich.logging import RichHandler
 
@@ -30,6 +17,9 @@ def get_version_info():
     Note:
         Temporarily changes directory to the rolypoly package directory to get version info
     """
+    import subprocess
+    import os
+    from importlib import resources
     import os
     from importlib import resources
 
@@ -74,6 +64,7 @@ def setup_logging(
         logger.debug("Detailed information")
         ```
     """
+    import subprocess
     # If log_file is already a logger, return it
     if isinstance(log_file, logging.Logger):
         return log_file
@@ -144,6 +135,8 @@ def log_start_info(logger: logging.Logger, config_dict: Dict):
         log_start_info(logger, config)
         ```
     """
+    import subprocess
+    from sys import argv as sys_argv
     # Log command and launch location
     launch_command = " ".join(sys_argv)
     logger.debug(f"Original command called: {launch_command}")

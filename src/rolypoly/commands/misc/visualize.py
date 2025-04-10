@@ -1,7 +1,5 @@
 from pathlib import Path
-
 import rich_click as click
-
 from rolypoly.utils.citation_reminder import remind_citations
 from rolypoly.utils.loggit import log_start_info, setup_logging
 
@@ -15,6 +13,7 @@ def parse_annotations(annotation_file):
     Returns:
         list: List of feature dictionaries
     """
+    import json
     import json
 
     features = []
@@ -110,6 +109,8 @@ def create_linear_plot(sequence_length, features, width=None, height=None):
     """
     import matplotlib.pyplot as plt
     from dna_features_viewer import GraphicFeature, GraphicRecord
+    import matplotlib.pyplot as plt
+    from dna_features_viewer import GraphicFeature, GraphicRecord
 
     # Convert features to GraphicFeature objects
     graphic_features = []
@@ -150,6 +151,9 @@ def create_circular_plot(sequence_length, features, width=None, height=None):
     Returns:
         matplotlib.figure.Figure: The plot figure
     """
+    import matplotlib.patches as patches
+    import matplotlib.pyplot as plt
+    import numpy as np
     import matplotlib.patches as patches
     import matplotlib.pyplot as plt
     import numpy as np
@@ -236,6 +240,9 @@ def visualize(
     """
     Generate visualization of viral genome features including ORFs, domains, and other annotations
     """
+    import matplotlib.pyplot as plt
+    from needletail import parse_fastx_file
+    from rolypoly.utils.loggit import log_start_info, setup_logging
     import matplotlib.pyplot as plt
     from needletail import parse_fastx_file
 

@@ -1,41 +1,9 @@
-"""Lazy loading functionality for (Rich)Click command groups.
-
-LazyGroup class is a subclass of Click's Group that lazily loads commands and command groups. Adapted from  https://click.palletsprojects.com/en/stable/complex/ and other sources.
-This is only to improve startup time. Tl;dr: only import subcommands when they are needed.
-
-Example:
-    ```python
-    @click.group(cls=LazyGroup, lazy_subcommands={
-        "data": {
-            "name": "Data Management Commands",
-            "commands": {
-                "update": "package.module.update",
-                "prepare": "package.module.prepare"
-            }
-        },
-        "pipeline": {
-            "name": "Pipeline Commands",
-            "commands": {
-                "filter": "package.module.filter",
-                "assemble": "package.module.assemble"
-            }
-        },
-        "hidden_cmd": "hidden:package.module.hidden_cmd"  # Hidden command
-    })
-    def cli():
-        pass
-    ```
-"""
-
-import importlib
-import pathlib as pt
-import sys
-from importlib.util import find_spec
-
+# import importlib
+# from importlib.util import find_spec
 import rich_click as click
 from rich.console import Console
-from rich.panel import Panel
-from rich.table import Table
+# from rich.panel import Panel
+# from rich.table import Table
 
 console = Console()
 
@@ -141,6 +109,8 @@ class LazyGroup(click.RichGroup):
             AttributeError: If the command object is not found in the module
             ValueError: If the loaded object is not a valid Click command
         """
+        import importlib
+        from importlib.util import find_spec
         import_path = self.lazy_subcommands[cmd_name]
         # Remove the "hidden:" prefix if present
         if import_path.startswith("hidden:"):
@@ -181,6 +151,8 @@ class LazyGroup(click.RichGroup):
 
     def format_commands(self, ctx, formatter):
         """Custom command formatter to show grouped commands."""
+        from rich.panel import Panel
+        from rich.table import Table
         # First get all commands that aren't in groups
         ungrouped = []
         for cmd_name in self.list_commands(ctx):

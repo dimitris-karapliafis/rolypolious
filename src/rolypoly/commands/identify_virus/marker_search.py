@@ -1,12 +1,9 @@
 import os
 from pathlib import Path
-
 from rich.console import Console
 from rich_click import Choice, command, option
-
 from rolypoly.utils.citation_reminder import remind_citations
 from rolypoly.utils.config import BaseConfig
-from rolypoly.utils.loggit import log_start_info
 
 
 class RVirusSearchConfig(BaseConfig):
@@ -209,12 +206,23 @@ def marker_search(
         RNA virus marker genes from geNomad v1.9 --- https://zenodo.org/records/14886553
     For custom path, either an .hmm file, a directory with .hmm files, or a folder with MSA files (which would be used to build an HMM DB).
     """
-    # Import modules needed only in this function
     import json
     import shutil
-
     import polars as pl
-
+    from rolypoly.utils.fax import (
+        guess_fasta_alpha,
+        pyro_predict_orfs,
+        search_hmmdb,
+        translate_6frx_seqkit,
+        translate_with_bbmap,
+    )
+    from rolypoly.utils.interval_ops import consolidate_hits
+    from rolypoly.utils.fax import hmm_from_msa
+    from rolypoly.utils.fax import hmmdb_from_directory
+    from rolypoly.utils.loggit import log_start_info
+    import json
+    import shutil
+    import polars as pl
     from rolypoly.utils.fax import (
         guess_fasta_alpha,
         pyro_predict_orfs,

@@ -1,30 +1,14 @@
-"""Configuration management utilities for RolyPoly.
-
-This module provides classes and functions for managing RolyPoly configuration,
-including handling parameters like input/output paths, logging settings,
-and resource allocation.
-
-Example:
-    ```python
-    config = BaseConfig(output="output_dir", threads=4, memory="8gb")
-    print(config.memory["giga"])
-    # Output: 8
-    ```
-"""
-
-import json
+# import json
 import logging
 import os
 import re
-from datetime import datetime
+# from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional
-
 from rich.console import Console
-
 from rolypoly.utils.loggit import setup_logging
 
-console = Console()
+# console = Console()
 
 
 class BaseConfig:
@@ -74,6 +58,8 @@ class BaseConfig:
         log_level: str = "info",
         keep_tmp: bool = False,
     ):
+        from datetime import datetime
+        import shutil
         self.input = input
         self.threads = threads
         # print(memory)
@@ -155,11 +141,13 @@ class BaseConfig:
 
     @classmethod
     def read(cls, config_file: Path):
+        import json
         with open(config_file, "r") as f:
             config_dict = json.load(f)
         return cls(**config_dict)
 
     def save(self, output_path: Path):
+        import json
         with open(output_path, "w") as f:
             tmp_dict = self.to_dict()
             for key, value in tmp_dict.items():
@@ -173,6 +161,7 @@ class BaseConfig:
 
     def parse_memory(self, memory_str: str) -> Dict[str, str]:
         """Parse memory string (e.g., '6gb', '6000mb', '6g') into a dictionary with bytes, mega, giga."""
+        import re
         import re
 
         # Convert memory string to lowercase and remove spaces

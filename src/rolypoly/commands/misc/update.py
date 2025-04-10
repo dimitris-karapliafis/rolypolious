@@ -1,5 +1,4 @@
 import os
-
 import rich_click as click
 from rich.console import Console
 
@@ -37,7 +36,11 @@ def update(update_type, log_file):
              update('data', log_file='update.log')
     """
     import subprocess
-
+    from rolypoly.utils.loggit import setup_logging
+    from rolypoly.commands.misc.prepare_external_data import (
+        prepare_external_data,
+    )
+    import subprocess
     from rolypoly.utils.loggit import setup_logging
 
     logger = setup_logging(log_file)
@@ -75,7 +78,6 @@ def update(update_type, log_file):
     if update_type in ["data", "all"]:
         logger.info("Updating RolyPoly data    ")
         try:
-            # Run prepare-external-data command
             from rolypoly.commands.misc.prepare_external_data import (
                 prepare_external_data,
             )

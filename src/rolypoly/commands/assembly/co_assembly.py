@@ -1,10 +1,7 @@
 ### place holder ###
 import os
-import subprocess
-
+# import subprocess
 from rich.console import Console
-
-# from pathlib import Path
 from rich_click import command, option
 
 console = Console()
@@ -43,6 +40,7 @@ def refinement(input, reads, output, threads, memory, variant_caller, log_file):
     Refine assembly by de-entangling strains and rerunning assembly - post host removal.
     """
     from rolypoly.utils.loggit import setup_logging
+    from rolypoly.utils.loggit import setup_logging
 
     logger = setup_logging(log_file)
     logger.info("Starting assembly refinement process")
@@ -71,6 +69,7 @@ def refinement(input, reads, output, threads, memory, variant_caller, log_file):
 
 
 def align_reads(assembly, reads, output_dir, threads, logger):
+    import subprocess
     logger.info("Aligning reads to assembly")
     index_cmd = f"bwa index {assembly}"
     subprocess.run(index_cmd, shell=True, check=True)
@@ -88,6 +87,7 @@ def align_reads(assembly, reads, output_dir, threads, logger):
 def call_variants(
     assembly, bam_file, output_dir, threads, memory, variant_caller, logger
 ):
+    import subprocess
     logger.info(f"Calling variants using {variant_caller}")
     vcf_file = os.path.join(output_dir, "variants.vcf")
 
@@ -103,6 +103,7 @@ def call_variants(
 
 
 def apply_variants(assembly, vcf_file, output_dir, logger):
+    import subprocess
     logger.info("Applying variants to improve assembly")
     improved_assembly = os.path.join(output_dir, "improved_assembly.fasta")
     cmd = f"bcftools consensus -f {assembly} {vcf_file} > {improved_assembly}"

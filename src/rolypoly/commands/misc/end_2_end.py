@@ -1,6 +1,5 @@
 import os
 from pathlib import Path
-
 import rich_click as click
 
 
@@ -151,6 +150,22 @@ def run_pipeline(
                  host="host.fasta"
              )
     """
+    from rolypoly.commands.annotation.annotate import annotate
+    from rolypoly.commands.assembly.assemble import assembly
+    from rolypoly.commands.assembly.filter_contigs import filter_contigs
+    from rolypoly.commands.identify_virus.marker_search import (
+        marker_search as marker_search,
+    )
+    from rolypoly.commands.reads.filter_reads import filter_reads
+    from rolypoly.commands.virotype.predict_characteristics import (
+        predict_characteristics,
+    )
+    from rolypoly.rolypoly import get_version_info
+    from rolypoly.utils.loggit import (  # , check_file_exists, check_file_size
+        log_start_info,
+        setup_logging,
+    )
+    import sys
     from rolypoly.commands.annotation.annotate import annotate
     from rolypoly.commands.assembly.assemble import assembly
     from rolypoly.commands.assembly.filter_contigs import filter_contigs

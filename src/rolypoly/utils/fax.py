@@ -1,13 +1,10 @@
-"""Sequence analysis and utilities (io, fasta/fastq, hmmer,masking, etc)."""
-
 import os
 from collections import defaultdict
 from pathlib import Path
 from typing import Dict, List, Tuple, Union
-
 import polars as pl
 import rich_click as click
-from needletail import parse_fastx_file
+# from needletail import parse_fastx_file
 from rich.console import Console
 
 __all__ = [
@@ -45,12 +42,14 @@ class SequenceExpr:
 
     def is_valid_codon(self) -> pl.Expr:
         """Check if sequence is valid for codon analysis"""
+        import polars as pl
         return (self._expr.str.len_chars() % 3 == 0) & (
             self._expr.map_elements(is_nucl_string, return_dtype=pl.Boolean)
         )
 
     def codon_usage(self) -> pl.Expr:
         """Calculate codon usage frequencies"""
+        import polars as pl
 
         def _calc_codons(seq: str) -> dict:
             if not is_nucl_string(seq) or len(seq) % 3 != 0:
@@ -67,15 +66,18 @@ class SequenceExpr:
 
     def generate_hash(self, length: int = 32) -> pl.Expr:
         """Generate a hash for a sequence"""
+        import polars as pl
         import hashlib
 
         def _hash(seq: str) -> str:
+            import hashlib
             return hashlib.md5(seq.encode()).hexdigest()[:length]
 
         return self._expr.map_elements(_hash, return_dtype=pl.String)
 
     def calculate_kmer_frequencies(self, k: int = 3) -> pl.Expr:
         """Calculate k-mer frequencies in the sequence"""
+        import polars as pl
 
         def _calc_kmers(seq: str, k: int) -> dict:
             if not seq or len(seq) < k:
@@ -100,8 +102,10 @@ class RNAStructureExpr:
 
     def predict_structure(self) -> pl.Expr:
         """predict RNA structure and minimum free energy"""
+        import polars as pl
 
         def _predict(seq: str) -> dict:
+            import RNA
             if len(seq) > 10000:
                 return {"structure": None, "mfe": None}
             try:
@@ -120,8 +124,10 @@ class RNAStructureExpr:
 
     def predict_structure_with_tool(self, tool: str = "ViennaRNA") -> pl.Expr:
         """Predict RNA structure using specified tool"""
+        import polars as pl
 
         def _predict_vienna(seq: str) -> dict:
+            import RNA
             if len(seq) > 10000:
                 return {"structure": None, "mfe": None}
             try:
@@ -133,6 +139,9 @@ class RNAStructureExpr:
                 return {"structure": None, "mfe": None}
 
         def _predict_linearfold(seq: str) -> dict:
+            import os
+            import subprocess
+            import tempfile
             if len(seq) > 10000:
                 return {"structure": None, "mfe": None}
             try:
@@ -199,6 +208,7 @@ def write_fasta_file(
     records=None, seqs=None, headers=None, output_file=None, format: str = "fasta"
 ) -> None:
     """if no output file is provided, it will print to stdout"""
+    import sys
     if format == "fasta":
         seq_delim = "\n"
         header_delim = "\n>"
@@ -240,6 +250,7 @@ def read_fasta_needletail(fasta_file: str) -> tuple[list[str], list[str]]:
             - List of sequences
     """
     from needletail import parse_fastx_file
+    from needletail import parse_fastx_file
 
     seqs = []
     seq_ids = []
@@ -251,6 +262,7 @@ def read_fasta_needletail(fasta_file: str) -> tuple[list[str], list[str]]:
 
 def add_fasta_to_gff(config, gff_file):
     """Add FASTA section to GFF file."""
+    from needletail import parse_fastx_file
     with open(gff_file, "a") as f:
         f.write("##FASTA\n")
         write_fasta_file(
@@ -284,8 +296,8 @@ def filter_fasta_by_headers(
          # Exclude sequences with specified headers
          filter_fasta_by_headers("all.fasta", "headers.txt", "filtered.fasta", invert=True)
     """
+    from needletail import parse_fastx_file
     import subprocess as sp
-
     from needletail import parse_fastx_file
 
     headers_list = []
@@ -318,6 +330,7 @@ def read_fasta_polars(fasta_file: str, idcol: str = "seq_id", seqcol: str = "seq
 
     """
     import polars as pl
+    import polars as pl
 
     seq_ids, seqs = read_fasta_needletail(fasta_file)
     return pl.DataFrame({idcol: seq_ids, seqcol: seqs})
@@ -336,6 +349,7 @@ def translate_6frx_seqkit(input_file: str, output_file: str, threads: int) -> No
         The output sequences are formatted with 20000bp line width.
 
     """
+    import subprocess as sp
     import subprocess as sp
 
     command = f"seqkit translate -x -F --clean -w 20000 -f 6 {input_file} --id-regexp '(\\*)' --clean  --threads {threads} > {output_file}"
@@ -359,6 +373,7 @@ def translate_with_bbmap(input_file: str, output_file: str, threads: int) -> Non
         - The GFF output file is named by replacing .faa with .gff
 
     """
+    import subprocess as sp
     import subprocess as sp
 
     gff_o = output_file.replace(".faa", ".gff")
@@ -394,7 +409,10 @@ def pyro_predict_orfs(
 
     """
     import multiprocessing.pool
-
+    import pyrodigal_gv as pyro_gv
+    from needletail import parse_fastx_file
+    from pyrodigal_gv import pyrodigal as pyro
+    import multiprocessing.pool
     import pyrodigal_gv as pyro_gv
     from needletail import parse_fastx_file
     from pyrodigal_gv import pyrodigal as pyro
@@ -449,6 +467,7 @@ def calculate_percent_identity(cigar_string: str, num_mismatches: int) -> float:
          98.0
     """
     import re
+    import re
 
     cigar_tuples = re.findall(r"(\d+)([MIDNSHPX=])", cigar_string)
     matches = sum(int(length) for length, op in cigar_tuples if op in {"M", "=", "X"})
@@ -473,6 +492,7 @@ def mask_sequence_mp(seq: str, start: int, end: int, is_reverse: bool) -> str:
     Note:
         Handles reverse complement if needed by using mappy's revcomp function.
     """
+    import mappy as mp
     import mappy as mp
 
     mp.revcomp(seq)
@@ -512,6 +532,7 @@ def guess_fastq_properties(file_path: str, mb_to_read: int = 20) -> dict:
             - paired_end (bool): Whether reads appear to be paired-end
             - average_read_length (float): Average length of reads
     """
+    import gzip
     bytes_to_read = mb_to_read * 1024 * 1024
     is_gz = is_gzipped(file_path)
     file_size = os.path.getsize(file_path)
@@ -626,6 +647,7 @@ def is_aa_string(sequence, extended=False):
 
 def get_sequence_between_newlines(input_string):
     import re
+    import re
 
     newline_pattern = re.compile(r"\n")
     newline_positions = [
@@ -646,6 +668,7 @@ def ensure_faidx(input_file: str) -> None:
 
     """
     import pyfastx
+    import pyfastx
 
     if not os.path.exists(f"{input_file}.fxi"):
         console.print(f"[yellow]Indexing {input_file} with pyfastx    [/yellow]")
@@ -663,6 +686,7 @@ def download_genome(taxid: str) -> None:
         Uses the NCBI datasets command-line tool to download genome data.
         Downloads RNA and genome data, excluding atypical sequences.
     """
+    import subprocess as sp
     import subprocess as sp
 
     sp.run(
@@ -702,6 +726,7 @@ def process_with_timeout(func: callable, arg: any, timeout: int) -> any:
     Note:
         Uses ProcessPoolExecutor to run the function in a separate process.
     """
+    from concurrent.futures import ProcessPoolExecutor, TimeoutError
     from concurrent.futures import ProcessPoolExecutor, TimeoutError
 
     with ProcessPoolExecutor(max_workers=1) as executor:
@@ -744,7 +769,10 @@ def fetch_genomes(
     import shutil
     import subprocess as sp
     from concurrent.futures import ProcessPoolExecutor
-
+    import concurrent.futures
+    import shutil
+    import subprocess as sp
+    from concurrent.futures import ProcessPoolExecutor
     from rolypoly.utils.various import extract_zip
 
     with open(input_file, "r") as f:
@@ -933,7 +961,6 @@ def read_fasta_needletail(fasta_file):
 def read_fasta_polars(
     fasta_file, idcol="seq_id", seqcol="seq", add_length=False, add_gc_content=False
 ):
-    # read fasta file with needletail
     import polars as pl
 
     seq_ids, seqs = read_fasta_needletail(fasta_file)
@@ -976,8 +1003,11 @@ class FastxNameSpace:
             df = lf.collect()
             ```
         """
+        import polars as pl
 
         def read_chunks():
+            import polars as pl
+            from needletail import parse_fastx_file
             reader = parse_fastx_file(path)
             chunk = []
             has_quality = None  # Flag to track if file has quality scores
@@ -1065,6 +1095,7 @@ def read_fasta_df(file_path: str) -> pl.DataFrame:
             - group: Internal grouping number (used for sequence concatenation)
 
     """
+    import polars as pl
     # First read the raw sequences using scan_fastx
     raw_df = pl.LazyFrame.fastx.scan(file_path).collect()
 
@@ -1113,6 +1144,7 @@ def rename_sequences(
             - DataFrame with renamed sequences
             - Dictionary mapping old IDs to new IDs
     """
+    import polars as pl
     id_map = {}
     new_headers = []
 
@@ -1140,6 +1172,7 @@ def process_sequences(df: pl.DataFrame, structure: bool = False) -> pl.DataFrame
     Returns:
         pl.DataFrame: DataFrame with added statistics columns
     """
+    import polars as pl
     # Calculate basic stats
     df = df.with_columns(
         [
@@ -1219,10 +1252,13 @@ def mask_dna(
     """
     import shutil
     import subprocess as sp
-
     import mappy as mp
     from bbmapy import bbmap, bbmask, kcompress
-
+    from rolypoly.utils.various import ensure_memory
+    import shutil
+    import subprocess as sp
+    import mappy as mp
+    from bbmapy import bbmap, bbmask, kcompress
     from rolypoly.utils.various import ensure_memory
 
     input_file = Path(input).resolve()
@@ -1367,6 +1403,7 @@ def bowtie_build(reference: str, output_base: str) -> None:
         output_base (str): Base name for the output index files
     """
     import subprocess as sp
+    import subprocess as sp
 
     command = ["bowtie-build", reference, output_base]
     sp.run(command, check=True)
@@ -1383,6 +1420,7 @@ def revcomp(seq: str) -> str:
     Returns:
         str: Reverse complement of the input sequence
     """
+    import mappy as mp
     import mappy as mp
 
     return mp.revcomp(seq)
@@ -1463,6 +1501,7 @@ def search_hmmdb(
       inc_e=0.01, match_region=True, ali_str=True)
 
     """
+    import pyhmmer
     import pyhmmer
 
     if logger:
@@ -1623,6 +1662,7 @@ def hmm_from_msa(
 
     """
     import pyhmmer
+    import pyhmmer
 
     # Set the alphabet
     if alphabet == "amino":
@@ -1684,11 +1724,15 @@ def hmmdb_from_directory(
         desc_col: str, column name in the info table to use for the HMM description
 
     """
-    # alphabet: str, sequence alphabet type ("amino" or "dna", or "guess")
     import tempfile
     from pathlib import Path
     from subprocess import run as runc
-
+    import polars as pl
+    import pyhmmer
+    from rich.progress import track
+    import tempfile
+    from pathlib import Path
+    from subprocess import run as runc
     import polars as pl
     import pyhmmer
     from rich.progress import track
@@ -1774,7 +1818,9 @@ def populate_pldf_withseqs_needletail(
     strand_col="strand",
 ):
     import subprocess
-
+    import polars as pl
+    from needletail import parse_fastx_file
+    import subprocess
     import polars as pl
     from needletail import parse_fastx_file
 
@@ -1895,6 +1941,7 @@ def identify_fastq_files(
         When return_rolypoly is True and rolypoly files are found, other files
         are ignored to maintain consistency with rolypoly pipeline.
     """
+    from pathlib import Path
     import re
     from pathlib import Path
 
@@ -1908,6 +1955,7 @@ def identify_fastq_files(
 
     def is_paired_filename(filename: str) -> tuple[bool, str]:
         """Check if filename indicates paired-end data and extract pair info."""
+        import re
         patterns = [
             (r".*_R?1[._].*", r".*_R?2[._].*"),  # Matches _R1/_R2, _1/_2
             (r".*_1\.f.*q.*", r".*_2\.f.*q.*"),  # Matches _1.fastq/_2.fastq

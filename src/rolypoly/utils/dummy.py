@@ -1,12 +1,9 @@
 import os
-import time
-
+# import time
 import rich_click as click
 from rich.console import Console
 from rich.progress import track
-
-# from utils.logging import setup_logging
-from rich.spinner import SPINNERS, Spinner  # type: ignore
+from rich.spinner import SPINNERS, Spinner
 
 console = Console()
 tasks = [f"task {n}" for n in range(1, 11)]
@@ -36,6 +33,7 @@ SPINNERS["myspinner"] = {"interval": 1000, "frames": ["🦠 ", "🧬 ", "🔬 "]
 )
 def dummy(input, output, threads, log_file):
     """WIP WIP WIP Predict a viral seq host range - caution! this is not definitive"""
+    import time
     task = tasks.pop(0)
     with console.status(
         f"[bold green] Working on {task}    ", spinner="myspinner"

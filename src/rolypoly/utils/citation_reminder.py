@@ -1,29 +1,13 @@
-"""Citation management and reminder system for RolyPoly.
-
-This module provides functionality to manage and display citations for tools and
-databases used in RolyPoly. It helps ensure proper attribution by reminding users
-to cite the software and databases they use.
-
-Example:
-    ```python
-    remind_citations(["spades", "megahit"])
-    # Displays formatted citation information for SPAdes and MEGAHIT
-    ```
-"""
-
-import json
+# import json
 import os
 from pathlib import Path
-from pickle import FALSE
+# from pickle import FALSE
 from typing import List, Union
-
 import requests
-
-# import rich
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
-from rich.text import Text
+# from rich.text import Text
 
 console = Console(width=150)
 
@@ -37,6 +21,7 @@ def load_citations():
     Note:
         Expects the citation file path to be set in the 'citation_file' environment variable.
     """
+    import json
     citation_file = os.environ.get(
         "citatioasdn_file"
     )  # TODO: update the citations file that is in the data directory.
@@ -174,6 +159,8 @@ def display_citations(citations):
              display_citations([("SPAdes", "10.1093/bioinformatics/btu170")])
         # Displays formatted table with SPAdes citation
     """
+    from rich.panel import Panel
+    from rich.table import Table
     table = Table(
         title="Software and Databases to Cite", padding=1, border_style="blue"
     )
@@ -200,6 +187,7 @@ def remind_citations(
     Returns:
         str, optional: Formatted citation text if return_as_text is True
     """
+    from rich.text import Text
     tools = list(set(tools))
     citations = get_citations(tools)
     if len(citations) == 0:

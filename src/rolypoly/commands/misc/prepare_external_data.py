@@ -1,9 +1,7 @@
 import os
 from pathlib import Path as pt
-
 from rich.console import Console
 from rich_click import command, option
-
 from rolypoly.utils.various import (
     extract,
     fetch_and_extract,
@@ -62,14 +60,17 @@ def prepare_external_data(try_hard, ROLYPOLY_DATA, threads, log_file):
              # Build from scratch
              prepare_external_data(try_hard=True, threads=8)
     """
-    # Import modules needed only in this function
+    import json
+    import subprocess
+    from importlib import resources
+    import requests
+    from rolypoly.utils.loggit import setup_logging
+    import pyhmmer
     import json
     import shutil
     import subprocess
     from importlib import resources
-
     import requests
-
     from rolypoly.utils.loggit import setup_logging
 
     if ROLYPOLY_DATA == None:
@@ -128,8 +129,6 @@ def prepare_external_data(try_hard, ROLYPOLY_DATA, threads, log_file):
         extract_to=hmmdb_dir + "/RdRp-scan",
     )
     subprocess.run("mkdir " + hmmdb_dir + "/RdRp-scan_HMMs", shell=True)
-
-    # Import pyhmmer only when needed
     import pyhmmer
 
     alphabet = pyhmmer.easel.Alphabet.amino()
@@ -224,7 +223,7 @@ def prepare_rvmt_mmseqs(ROLYPOLY_DATA, threads, log_file):
         This function assumes RVMT alignments have been downloaded and
         extracted to the appropriate location in ROLYPOLY_DATA.
     """
-    # Import modules needed only in this function
+    import subprocess
     import subprocess
 
     console.print("Preparing RVMT mmseqs database")
@@ -269,7 +268,7 @@ def prepare_rrna_db(ROLYPOLY_DATA, log_file):
         Creates formatted databases suitable for sequence similarity searches
         and taxonomic classification.
     """
-    # Import modules needed only in this function
+    import subprocess
     import subprocess
 
     console.print("Preparing rRNA database")
@@ -313,7 +312,7 @@ def create_hmm_from_msa(msa, alphabet, set_ga):
         The function handles both protein and nucleotide alignments based
         on the provided alphabet.
     """
-    # Import modules needed only in this function
+    import pyhmmer
     import pyhmmer
 
     builder = pyhmmer.plan7.Builder(alphabet)
@@ -342,7 +341,7 @@ def generate_hmms(input_msas, input_format, set_ga):
     Example:
              hmms = generate_hmms(["msa1.sto", "msa2.sto"], "stockholm", True)
     """
-    # Import modules needed only in this function
+    import pyhmmer
     import pyhmmer
 
     alphabet = pyhmmer.easel.Alphabet.amino()
@@ -393,9 +392,9 @@ def download_and_extract_rfam(ROLYPOLY_DATA, logger):
         Downloads both the sequence database and covariance models,
         and processes them for use with Infernal.
     """
-    # Import modules needed only in this function
     import subprocess
-
+    import requests
+    import subprocess
     import requests
 
     rfam_url = "https://ftp.ebi.ac.uk/pub/databases/Rfam/CURRENT/Rfam.cm.gz"
@@ -431,7 +430,10 @@ def tar_everything_and_upload_to_NERSC(ROLYPOLY_DATA, version=""):
     """
     import datetime
     import subprocess
-
+    from rolypoly.utils.citation_reminder import remind_citations
+    from rolypoly.utils.loggit import get_version_info
+    import datetime
+    import subprocess
     from rolypoly.utils.citation_reminder import remind_citations
 
     if version == "":
@@ -488,11 +490,14 @@ def prepare_genomad_rna_viral_hmms(ROLYPOLY_DATA, threads, logger=None):
     import os
     import shutil
     import subprocess
-
-    # only extract file from genomad_msa_v1.9.tar that end with VV.faa
+    import tarfile
+    import polars as pl
+    from rolypoly.utils.fax import hmmdb_from_directory
+    import os
+    import shutil
+    import subprocess
     import tarfile
     import zipfile
-
     import polars as pl
     import requests
 
@@ -580,8 +585,6 @@ def prepare_genomad_rna_viral_hmms(ROLYPOLY_DATA, threads, logger=None):
             )
         # remove the genomad_msa_v1.9 directory
         shutil.rmtree(genomad_alignments_dir + "/genomad_msa_v1.9")
-
-        # Create HMM database using functions from fax.py
         from rolypoly.utils.fax import hmmdb_from_directory
 
         output_hmm = os.path.join(
