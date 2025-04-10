@@ -2,8 +2,7 @@ import os
 # import time
 import rich_click as click
 from rich.console import Console
-from rich.progress import track
-from rich.spinner import SPINNERS, Spinner
+from rich.spinner import SPINNERS
 
 console = Console()
 tasks = [f"task {n}" for n in range(1, 11)]

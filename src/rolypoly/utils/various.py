@@ -1,7 +1,7 @@
 import os
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Dict, Generator, List, Optional, Union
+from typing import Dict, Generator, List, Optional, Union
 from rich.console import Console
 
 console = Console()

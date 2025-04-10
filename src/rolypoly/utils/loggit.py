@@ -1,8 +1,6 @@
 import logging
-# import subprocess
 from typing import Dict
 from pathlib import Path
-# from sys import argv as sys_argv
 from typing import Union
 from rich.console import Console
 from rich.logging import RichHandler

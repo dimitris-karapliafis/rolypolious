@@ -59,7 +59,7 @@ os.environ["citation_file"] = (
             },
         },
         "assembly": {
-            "name": "Genome/Meta Assembly",
+            "name": "Meta/Genome Assembly",
             "commands": {
                 "assemble": "rolypoly.commands.assembly.assemble.assembly",
                 "filter-contigs": "rolypoly.commands.assembly.filter_contigs.filter_contigs",
@@ -72,26 +72,24 @@ os.environ["citation_file"] = (
             "name": "Miscellaneous",
             "commands": {
                 "end2end": "rolypoly.commands.misc.end_2_end.run_pipeline",
-                "add-command": "hidden:rolypoly.commands.misc.add_command.add_command",
-                "dummy": "hidden:rolypoly.utils.dummy.dummy",
+                # "add-command": "hidden:rolypoly.commands.misc.add_command.add_command",
+                # "dummy": "hidden:rolypoly.utils.dummy.dummy",
                 "fetch-sra": "rolypoly.commands.misc.fetch_sra_fastq.fetch_sra",  # Not  a click command (yet?)
                 "sequence-stats": "rolypoly.commands.misc.sequence_stats.sequence_stats",
                 "visualize": "rolypoly.commands.misc.visualize.visualize",
                 "quick-taxonomy": "rolypoly.commands.misc.quick_taxonomy.quick_taxonomy",
             },
         },
-        "characterise": {
-            "name": "Characterisation",
-            "commands": {
-                "characterise": "hidden:rolypoly.commands.virotype.predict_characteristics.predict_characteristics",
-                "predict-host": "hidden:rolypoly.commands.host.classify.predict_host_range",
-                "correlate": "hidden:rolypoly.commands.bining.corrolate.corrolate",
-                "marker-search": "rolypoly.commands.identify_virus.marker_search.marker_search",
-                "search-viruses": "rolypoly.commands.identify_virus.search_viruses.virus_mapping",
-                # Commenting out unimplemented/broken commands
-                # "summarize": "rolypoly.commands.virotype.summarize.summarize"
-            },
-        },
+        # "characterise": {
+        #     "name": "Characterisation",
+        #     "commands": {
+        #         "characterise": "hidden:rolypoly.commands.virotype.predict_characteristics.predict_characteristics",
+        #         "predict-host": "hidden:rolypoly.commands.host.classify.predict_host_range",
+        #         "correlate": "hidden:rolypoly.commands.bining.corrolate.corrolate",
+        #         # Commenting out unimplemented/broken commands
+        #         # "summarize": "rolypoly.commands.virotype.summarize.summarize"
+        #     },
+        # },
         "identify": {
             "name": "RNA Virus Identification",
             "commands": {
