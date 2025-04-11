@@ -4,7 +4,6 @@ from pathlib import Path
 from typing import Dict, Tuple, Union
 import rich_click as click
 from rich.console import Console
-from rolypoly.utils.citation_reminder import remind_citations
 from rolypoly.utils.config import BaseConfig
 from rolypoly.utils.output_tracker import OutputTracker
 from rolypoly.utils.various import change_directory, ensure_memory
@@ -364,6 +363,7 @@ def filter_reads(
     Removes host reads, synthetic artifacts, and unknown DNA, corrects sequencing errors, trims adapters and low quality reads.
     """
     from rolypoly.utils.loggit import log_start_info
+    from rolypoly.utils.citation_reminder import remind_citations
 
     if (input is None) and (config_file is None):
         click.echo("Either input or config-file must be provided.")
@@ -417,28 +417,29 @@ def generate_reports(file_name: str, threads: int, skip_existing: bool, logger):
     import glob
     import subprocess
 
-    # Generate FastQC report
-    fastqc_output = Path("FastQC_post_trim_reads")
-    fastqc_output.mkdir(exist_ok=True)
+    # Generate Falco report
+    falco_output = Path("Falco_post_trim_reads")
+    falco_output.mkdir(exist_ok=True)
     all_remaining_fastqs = glob.glob(f"*final*.fq.gz", recursive=True)
-    fastqc_cmd = [
-        "fastqc",
+    falco_cmd = [
+        "falco",
         "-t",
         str(threads),
         *all_remaining_fastqs,
         "-o",
-        str(fastqc_output),
+        str(falco_output),
     ]
 
     if (
         not skip_existing
-        or not (fastqc_output / f"merged_{file_name}_fastqc.html").exists()
+        or not (falco_output / f"merged_{file_name}_falco.html").exists()
     ):
-        subprocess.run(fastqc_cmd, check=True)
-        logger.info("FastQC report generated")
+        subprocess.run(falco_cmd, check=True)
+        logger.info("Falco report generated")
     else:
-        logger.info("FastQC report already exists, skipping")
-        tools.append("fastqc")
+        logger.info("Falco report already exists, skipping")
+        tools.append("falco")
+
     # Run MultiQC
     multiqc_output = Path(f"{file_name}_multiqc")
     multiqc_cmd = ["multiqc", "./", "--outdir", str(multiqc_output)]
@@ -450,7 +451,7 @@ def generate_reports(file_name: str, threads: int, skip_existing: bool, logger):
     else:
         logger.info("MultiQC report already exists, skipping")
 
-    shutil.rmtree(fastqc_output)
+    shutil.rmtree(falco_output)
 
 
 def identify_read_pair_files_in_folder(
