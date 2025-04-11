@@ -118,7 +118,7 @@ class AnnotationConfig(BaseConfig):
     "--search-tool",
     default="hmmsearch",
     type=click.Choice(
-        ["hmmsearch", "hmmscan", "mmseqs2", "DIAMOND", "blastp", "nail", "psiblast"]
+        ["hmmsearch", "hmmscan", "mmseqs2", "DIAMOND", "nail"],case_sensitive=False
     ),
     help="Tool/command for protein domain detection. hmmer commands are used via pyhmmer bindings",
 )
@@ -182,6 +182,7 @@ def annotate(
         memory=memory,
         override_params=override_params,
         skip_steps=skip_steps_list,
+        gene_prediction_tool=gene_prediction_tool,
         search_tool=search_tool,
         domain_db=domain_db,
         custom_domain_db=custom_domain_db,

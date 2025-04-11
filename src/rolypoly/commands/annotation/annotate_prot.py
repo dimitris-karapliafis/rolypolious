@@ -21,6 +21,7 @@ class ProteinAnnotationConfig(BaseConfig):
         custom_domain_db: str = "",
         min_orf_length: int = 30,
         genetic_code: int = 11,
+        gene_prediction_tool: str = "ORFfinder",
         **kwargs,
     ):
         # Extract BaseConfig parameters
@@ -39,7 +40,7 @@ class ProteinAnnotationConfig(BaseConfig):
         self.custom_domain_db = custom_domain_db
         self.min_orf_length = min_orf_length
         self.genetic_code = genetic_code
-
+        self.gene_prediction_tool = gene_prediction_tool
         self.step_params = {
             "ORFfinder": {"minimum_length": 30},
             "hmmsearch": {"E": 1e-5},
@@ -87,10 +88,18 @@ console = Console(width=150)
     help="Comma-separated list of steps to skip. Example: --skip-steps ORFfinder,hmmsearch",
 )
 @click.option(
+    "--gene-prediction-tool",
+    default="ORFfinder",
+    type=click.Choice(
+        ["ORFfinder", "pyrodigal", "six-frame", "MetaGeneAnnotator"],case_sensitive=False
+    ),
+    help="Tool for gene prediction",
+)
+@click.option(
     "--search-tool",
     default="hmmsearch",
     type=click.Choice(
-        ["hmmsearch", "hmmscan", "mmseqs2", "DIAMOND", "blastp", "nail", "psiblast"]
+        ["hmmsearch",  "mmseqs2", "DIAMOND", "nail"],case_sensitive=False
     ),
     help="Tool/command for protein domain detection. hmmer commands are used via pyhmmer bindings",
 )
@@ -98,7 +107,7 @@ console = Console(width=150)
     "--domain-db",
     default="Pfam",
     type=click.Choice(
-        ["Pfam", "Vfam", "InterPro", "Phrogs", "dbCAN", "all", "none", "custom"]
+        ["Pfam", "Vfam", "InterPro", "Phrogs", "dbCAN", "all", "none", "custom"],case_sensitive=False
     ),
     help="Database for domain detection",
 )
@@ -119,6 +128,7 @@ def annotate_prot(
     memory,
     override_parameters,
     skip_steps,
+    gene_prediction_tool,
     search_tool,
     domain_db,
     custom_domain_db,
@@ -143,6 +153,8 @@ def annotate_prot(
         domain_db=domain_db,
         custom_domain_db=custom_domain_db,
         min_orf_length=min_orf_length,
+        gene_prediction_tool=gene_prediction_tool,
+        genetic_code=genetic_code,
     )
 
     try:
@@ -173,18 +185,20 @@ def process_protein_annotations(config):
     combine_results(config)
     config.logger.info("Protein annotation process completed successfully")
 
-
 def predict_orfs(config):
     """Predict open reading frames using selected tool"""
-    if config.search_tool == "ORFfinder":
+    if config.gene_prediction_tool == "ORFfinder":
         predict_orfs_with_orffinder(config)
-    elif config.search_tool == "pyrodigal":
+    elif config.gene_prediction_tool == "pyrodigal":
         predict_orfs_with_pyrodigal(config)
-    elif config.search_tool == "six-frame":
+    elif config.gene_prediction_tool == "six-frame":
         predict_orfs_with_six_frame(config)
+    elif config.gene_prediction_tool == "MetaGeneAnnotator":
+        config.logger.info("MetaGeneAnnotator not implemented yet")
+        # predict_orfs_with_metagenannotator(config)
     else:
         config.logger.info(
-            f"Skipping ORF prediction as {config.search_tool} is not supported"
+            f"Skipping ORF prediction as {config.gene_prediction_tool} is not supported"
         )
 
 
@@ -198,7 +212,6 @@ def predict_orfs_with_pyrodigal(config):
         gv_or_else="gv",
         genetic_code=config.genetic_code,
     )
-
 
 def predict_orfs_with_six_frame(config):
     """Translate 6-frame reading frames of a DNA sequence using seqkit."""

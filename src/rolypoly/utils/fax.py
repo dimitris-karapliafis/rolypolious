@@ -5,6 +5,9 @@ from typing import Dict, List, Tuple, Union
 import polars as pl
 import rich_click as click
 from rich.console import Console
+from needletail import parse_fastx_file
+
+
 # import polars_hash as plh #TODO: Use this instead of hashlib (specifiically for non-cryptographic hash)
 # import polars_pairing as plp
 # __all__ = [
@@ -18,6 +21,7 @@ from rich.console import Console
 
 global datadir
 datadir = Path(os.environ["ROLYPOLY_DATA"])
+
 
 
 # Register custom expressions for sequence analysis
@@ -40,18 +44,9 @@ class SequenceExpr:
         """Get sequence length"""
         return self._expr.str.len_chars()
 
-    def is_valid_codon(self) -> pl.Expr:
-        """Check if sequence is valid for codon analysis"""
-        
-        return (self._expr.str.len_chars() % 3 == 0) & (
-            self._expr.map_elements(is_nucl_string, return_dtype=pl.Boolean)
-        )
-
     def codon_usage(self) -> pl.Expr:
         """Calculate codon usage frequencies"""
         def _calc_codons(seq: str) -> dict:
-            if not is_nucl_string(seq) or len(seq) % 3 != 0:
-                return {}
             codons = defaultdict(int)
             for i in range(0, len(seq) - 2, 3):
                 codon = seq[i : i + 3].upper()
@@ -88,6 +83,57 @@ class SequenceExpr:
             lambda x: _calc_kmers(x, k), return_dtype=pl.Struct
         )
 
+@pl.api.register_lazyframe_namespace("from_fastx")
+def init(input_file: Union[str, Path], batch_size: int = 512) -> pl.LazyFrame:
+    """Scan a FASTA/FASTQ file into a lazy polars DataFrame.
+
+    This function extends polars with the ability to lazily read FASTA/FASTQ files.
+    It can be used directly as pl.LazyFrame.fastx.scan("sequences.fasta").
+
+    Args:
+        path (Union[str, Path]): Path to the FASTA/FASTQ file
+        batch_size (int, optional): Number of records to read per batch. Defaults to 512.
+
+    Returns:
+        pl.LazyFrame: Lazy DataFrame with columns:
+            - header: Sequence headers (str)
+            - sequence: Sequences (str) # TODO: maybe somehow move to largeutf8?
+            - quality: Quality scores (only for FASTQ)
+    """
+    def file_has_quality(file: Union[str, Path]) -> bool:
+        first_record = next(parse_fastx_file(file))
+        return first_record.qual is not None
+
+    has_quality = file_has_quality(input_file)
+    if has_quality:
+        schema = pl.Schema({"header": pl.String, "sequence": pl.String, "quality": pl.String})
+    else:
+        schema = pl.Schema({"header": pl.String, "sequence": pl.String})
+
+    def read_chunks():
+        reader = parse_fastx_file(input_file)
+        while True:
+            chunk = []
+            for _ in range(batch_size):
+                try:
+                    record = next(reader)
+                    row = [record.id, record.seq]
+                    if has_quality:
+                        row.append(record.qual)
+                    chunk.append(row)
+                except StopIteration:
+                    if chunk:
+                        yield pl.LazyFrame(chunk, schema=schema, orient="row")
+                    return
+            yield pl.LazyFrame(chunk, schema=schema, orient="row")
+
+    return pl.concat(read_chunks(), how="vertical")
+
+
+
+@pl.api.register_dataframe_namespace("from_fastx")
+def init(file: Union[str, Path], batch_size: int = 512) -> pl.DataFrame:
+    return pl.LazyFrame.from_fastx(file, batch_size).collect()
 
 @pl.api.register_expr_namespace("rna")
 class RNAStructureExpr:
@@ -184,6 +230,8 @@ class RNAStructureExpr:
             )
 
 
+
+
 def write_fasta_file(
     records=None, seqs=None, headers=None, output_file=None, format: str = "fasta"
 ) -> None:
@@ -215,7 +263,7 @@ def write_fasta_file(
 
 def read_fasta_needletail(fasta_file: str) -> tuple[list[str], list[str]]:
     """Read sequences from a FASTA/FASTQ file using needletail"""
-    from needletail import parse_fastx_file
+    
 
     seqs = []
     seq_ids = []
@@ -227,7 +275,7 @@ def read_fasta_needletail(fasta_file: str) -> tuple[list[str], list[str]]:
 
 def add_fasta_to_gff(config, gff_file):
     """Add FASTA section to GFF file"""
-    from needletail import parse_fastx_file
+    
     with open(gff_file, "a") as f:
         f.write("##FASTA\n")
         write_fasta_file(
@@ -255,7 +303,7 @@ def filter_fasta_by_headers(
         output_file (str): Path to write filtered sequences
         invert (bool, optional): If True, keep sequences that don't match.
     """
-    from needletail import parse_fastx_file
+    
 
     headers_list = []
     if not isinstance(headers, list):
@@ -335,7 +383,8 @@ def pyro_predict_orfs(
     output_file: str,
     threads: int,
     gv_or_else: str = "gv",
-    genetic_code: int = 11,
+    genetic_code: int = 11, # NOT USED YET # TODO: add SUPPORT for this.
+    model: str = "1" # NOT USED YET/at all.
 ) -> None:
     """Predict and translate Open Reading Frames using Pyrodigal.
 
@@ -353,11 +402,10 @@ def pyro_predict_orfs(
         - Creates both protein sequences (.faa) and gene annotations (.gff)
         - genetic_code is 11 for standard/bacterial
 
-
     """
     import multiprocessing.pool
     import pyrodigal_gv as pyro_gv
-    from needletail import parse_fastx_file
+    
     from pyrodigal_gv import pyrodigal as pyro
 
     sequences = []
@@ -861,7 +909,7 @@ def mask_nuc_range(input_fasta: str, input_table: str, output_fasta: str) -> Non
 
 
 def read_fasta_needletail(fasta_file):
-    from needletail import parse_fastx_file
+    
 
     seqs = []
     seq_ids = []
@@ -881,67 +929,6 @@ def read_fasta_polars(
     if add_gc_content:
         df = df.with_columns(pl.col(seqcol).str.count("G|C").alias("gc_content"))
     return df
-
-
-@pl.api.register_lazyframe_namespace("fastx")
-class FastxNameSpace:
-    def __init__(self, ldf: pl.LazyFrame):
-        self._ldf = ldf
-
-    @staticmethod
-    def scan(path: Union[str, Path], batch_size: int = 512) -> pl.LazyFrame:
-        """Scan a FASTA/FASTQ file into a lazy polars DataFrame.
-
-        This function extends polars with the ability to lazily read FASTA/FASTQ files.
-        It can be used directly as pl.LazyFrame.fastx.scan("sequences.fasta").
-        It is inspired by the scan_fastx written by Antônio Pedro Camargo, see https://github.com/apcamargo/polars-fastx
-
-        Args:
-            path (Union[str, Path]): Path to the FASTA/FASTQ file
-            batch_size (int, optional): Number of records to read per batch. Defaults to 512.
-
-        Returns:
-            pl.LazyFrame: Lazy DataFrame with columns:
-                - identifier: Sequence identifiers
-                - sequence: Sequences
-                - quality: Quality scores (only for FASTQ)
-
-        Example:
-            ```python
-            # Read as lazy frame
-            lf = pl.LazyFrame.fastx.scan("sequences.fasta")
-            # Process and collect
-            df = lf.collect()
-            ```
-        """
-        def read_chunks():
-            
-            from needletail import parse_fastx_file
-            reader = parse_fastx_file(path)
-            chunk = []
-            has_quality = None  # Flag to track if file has quality scores
-
-            for record in reader:
-                # Check if file has quality scores on first record
-                if has_quality is None:
-                    has_quality = record.qual is not None
-
-                record_dict = {"identifier": record.id, "sequence": record.seq}
-
-                # Only include quality if it exists
-                if has_quality:
-                    record_dict["quality"] = record.qual
-
-                chunk.append(record_dict)
-
-                if len(chunk) >= batch_size:
-                    yield pl.DataFrame(chunk)
-                    chunk = []
-
-            if chunk:
-                yield pl.DataFrame(chunk)
-
-        return pl.concat(read_chunks()).lazy()
 
 
 def write_fasta_file(
@@ -1662,7 +1649,7 @@ def populate_pldf_withseqs_needletail(
     strand_col="strand",
 ):
     import subprocess
-    from needletail import parse_fastx_file
+    
 
     merge_cols = [idcol]
     if reverse_by_strand_col:
