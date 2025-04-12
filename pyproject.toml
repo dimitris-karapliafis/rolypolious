@@ -33,7 +33,7 @@ dependencies = [
     "rich-click>=1.8.8,<2",
     "rich>=14.0.0,<15",
     "viennarna>=2.7.0,<3",
-    "intervaltree>=3.1.0,<4",
+    "intervaltree>=3.1.0,<4"
     
 ]
 
@@ -71,7 +71,7 @@ ncbi-datasets-cli = ">=17.3.0,<18"
 pigz = ">=2.8,<3"
 plass = ">=5.cf8933,<6"
 seqkit = ">=2.10.0,<3"
-spades = ">=4.0.0,<5"
+spades = ">=4.0.1,<5"
 trnascan-se = ">=2.0.12,<3"
 falco = ">=1.2.5,<2"
 

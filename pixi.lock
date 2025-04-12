@@ -2300,7 +2300,7 @@ packages:
 - pypi: .
   name: rolypoly
   version: 0.0.1
-  sha256: ab11d5763ca079c9eec91a4a56f0dc627d913337eefd45e4aa90904efa4b9412
+  sha256: c64a57e5974d2137e211351ab0f5b1d226a4bcecaf4f0f8620f9915033168448
   requires_dist:
   - bbmapy>=0.0.46,<0.0.48
   - dna-features-viewer>=3.1.4,<4

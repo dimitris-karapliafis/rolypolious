@@ -768,6 +768,10 @@ def fetch_genomes(
             if len(taxons) > max2take:
                 break
 
+    if not taxons:
+        print("No valid taxons found in the input file. Skipping genome fetching.")
+        return
+
     # Use taxonkit to get taxids
     with open("tmp_gbs_50m_taxids.lst", "w") as f:
         sp.run(["taxonkit", "name2taxid"], input="\n".join(taxons).encode(), stdout=f)
@@ -781,6 +785,10 @@ def fetch_genomes(
         ]
     taxids = list(set(taxids).difference(["", "562"]))  # Remove empty and E. coli
 
+    if not taxids:
+        print("No valid taxids found. Skipping genome fetching.")
+        return
+
     with ProcessPoolExecutor(max_workers=threads) as executor:
         futures = [
             executor.submit(process_with_timeout, download_genome, taxid, timeout)
@@ -793,6 +801,10 @@ def fetch_genomes(
                 print(f"An error occurred: {e}")
 
     zip_files = list(Path(".").glob("*.zip"))
+    if not zip_files:
+        print("No genome zip files were downloaded. Skipping extraction.")
+        return
+
     with ProcessPoolExecutor(max_workers=threads) as executor:
         futures = [
             executor.submit(process_with_timeout, extract_zip, zip_file, timeout)
@@ -806,14 +818,25 @@ def fetch_genomes(
 
     # Concatenate and deduplicate sequences
     ref_seqs = set()
-    for folder in Path("ncbi_dataset/").rglob("*/"):
+    ncbi_dataset_dir = Path("ncbi_dataset")
+    if not ncbi_dataset_dir.exists():
+        print("NCBI dataset directory not found. Skipping sequence processing.")
+        return
+
+    for folder in ncbi_dataset_dir.rglob("*/"):
         fna_files = list(folder.rglob("*.fna"))
+        if not fna_files:
+            continue
         rna_file = next((f for f in fna_files if "rna" in f.name.lower()), None)
         if rna_file:
             chosen_file = rna_file
         else:
             chosen_file = fna_files[0]  # choose the first file if no RNA file found
         ref_seqs.add(str(chosen_file))
+
+    if not ref_seqs:
+        print("No FNA files found in the downloaded genomes. Skipping sequence processing.")
+        return
 
     with open("tmp.lst", "w") as outf:
         for f in ref_seqs:
