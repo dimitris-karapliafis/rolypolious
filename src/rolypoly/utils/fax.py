@@ -654,7 +654,8 @@ def download_genome(taxid: str) -> None:
         Downloads RNA and genome data, excluding atypical sequences.
     """
     import subprocess as sp
-
+    # import shutil
+    # print(shutil.which("datasets"))
     sp.run(
         [
             "datasets",
@@ -675,6 +676,7 @@ def download_genome(taxid: str) -> None:
         ],
         stdout=sp.DEVNULL,
         stderr=sp.DEVNULL,
+        # shell=True
     )
 
 
@@ -707,7 +709,7 @@ def fetch_genomes(
     input_file: str,
     output_file: str,
     threads: int = 1,
-    max2take: int = 75,
+    max2take: int = 25,
     timeout: int = 600,
 ) -> None:
     """Fetch genomes from NCBI for masking purposes.
@@ -791,7 +793,7 @@ def fetch_genomes(
 
     with ProcessPoolExecutor(max_workers=threads) as executor:
         futures = [
-            executor.submit(process_with_timeout, download_genome, taxid, timeout)
+            executor.submit(process_with_timeout, download_genome, taxid, timeout) # TODO: replace with something else.
             for taxid in taxids
         ]
         for future in concurrent.futures.as_completed(futures):
@@ -841,6 +843,8 @@ def fetch_genomes(
     with open("tmp.lst", "w") as outf:
         for f in ref_seqs:
             outf.write(f + "\n")
+    from shutil import which
+    print(which("seqkit"))
     sp.call(
         ["seqkit", "rmdup", "-s", "--infile-list", "tmp.lst"],
         stdout=open("tmp.fasta", "w"),
@@ -1605,8 +1609,8 @@ def hmmdb_from_directory(
         some_bool = False
 
     # create a temporary directory
-    with tempfile.TemporaryDirectory() as tmp_dir:
-        tmp_dir = Path(tmp_dir)
+    with tempfile.TemporaryDirectory() as temp_dir:
+        temp_dir = Path(temp_dir)
         hmms = []
         # Process each MSA file and collect HMMs
         for msa_file in track(
@@ -1649,12 +1653,12 @@ def hmmdb_from_directory(
                 hmm.cutoffs.gathering = this_gath, this_gath
             # write the hmm to a file
             # hmms.append(hmm)
-            fh = open(tmp_dir / f"{msa.name.decode()}.hmm", "wb")
+            fh = open(temp_dir / f"{msa.name.decode()}.hmm", "wb")
             hmm.write(fh, binary=False)
             # runc(f"head {fh.name}", shell=True)
             # break
             fh.close()
-        runc(f"cat {tmp_dir}/*.hmm > {output}", shell=True)
+        runc(f"cat {temp_dir}/*.hmm > {output}", shell=True)
     # Press all HMMs into a database
     # pyhmmer.hmmer.hmmpress(hmms, output) # this is bugged =\ using cat as a workaround for now.
 

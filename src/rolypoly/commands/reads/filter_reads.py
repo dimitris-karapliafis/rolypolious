@@ -1,3 +1,4 @@
+import glob
 import os
 import shutil
 from pathlib import Path
@@ -6,7 +7,7 @@ import rich_click as click
 from rich.console import Console
 from rolypoly.utils.config import BaseConfig
 from rolypoly.utils.output_tracker import OutputTracker
-from rolypoly.utils.various import change_directory, ensure_memory
+from rolypoly.utils.various import ensure_memory, run_command_comp
 
 
 global tools
@@ -28,16 +29,18 @@ class ReadFilterConfig(BaseConfig):
         super().__init__(
             input=kwargs.get("input"),
             output=kwargs.get("output"),
+            temp_dir=kwargs.get("temp_dir"),
             keep_tmp=kwargs.get("keep_tmp"),
             log_file=kwargs.get("log_file"),
             threads=kwargs.get("threads"),
             memory=kwargs.get("memory"),
             config_file=kwargs.get("config_file"),
             overwrite=kwargs.get("overwrite"),
-            log_level=kwargs.get("log_level"),
+            log_level=kwargs.get("log_level")
         )  # initialize the BaseConfig class
         # initialize the rest of the parameters (i.e. the ones that are not in the BaseConfig class)
         self.skip_existing = kwargs.get("skip_existing") or False
+        self.zip_reports = kwargs.get("zip_reports") or False
         # self.override_parameters = self.override_parameters if isinstance(self.override_parameters, dict) else eval(self.override_parameters) if isinstance(self.override_parameters, str) else {}
         self.skip_steps = (
             kwargs.get("skip_steps")
@@ -65,8 +68,9 @@ class ReadFilterConfig(BaseConfig):
         self.file_name = (
             kwargs.get("file_name") or "rp_filtered_reads"
         )  # this is the base name of the output files, if not provided, it will be "rp_filtered_reads"
+        
         self.step_params = {  # these are the default parameters for each step, if not overridden by the user
-            "filter_by_tile": {"nullifybrokenquality": "t"},
+            # "filter_by_tile": {"nullifybrokenquality": "t"},
             "filter_known_dna": {"k": 31, "mincovfraction": 0.7, "hdist": 0},
             "decontaminate_rrna": {"k": 31, "mincovfraction": 0.5, "hdist": 0},
             "filter_identified_dna": {"k": 31, "mincovfraction": 0.7, "hdist": 0},
@@ -92,6 +96,7 @@ class ReadFilterConfig(BaseConfig):
             "merge_reads": {"k": 93, "extend2": 80, "rem": True, "mix": "f"},
             "quality_trim_unmerged": {"qtrim": "rl", "trimq": 5, "minlen": 45},
         }
+        self.max_genomes = kwargs.get("max_)") or 25 # maximum number of potential host genomes to fetch
         if kwargs.get("override_parameters") is not None:
             self.logger.info(
                 f"override_parameters: {kwargs.get('override_parameters')}"
@@ -108,7 +113,6 @@ class ReadFilterConfig(BaseConfig):
 def timeout_handler(signum, frame):
     raise TimeoutError("Function call timed out")
 
-
 def check_existing_file(output_file: Path, min_size: int = 20) -> bool:
     """Check if a file exists and is larger than min_size bytes"""
     return output_file.exists() and output_file.stat().st_size > min_size
@@ -121,121 +125,121 @@ def process_reads(
     import signal
     from rich.spinner import SPINNERS, Spinner
     config.logger.info(f"Checking dependencies    ")
-    with change_directory(config.tmp_dir):
-        config.save("rp_filter_reads_config.json")  # type: ignore
-        fastq_file, config.file_name = handle_input_fastq(config)
-        config.logger.info(f"file_name: {config.file_name}")
-        config.logger.info(f"fastq_file: {fastq_file}")
-        output_tracker.add_file(
-            filename=str(config.input),
-            command="handle_input_fastq",
-            command_name="reformat",
-            is_merged=False,
-        )  # retroactive addition
-        config.memory = ensure_memory(config.memory, fastq_file)  # type: ignore ------ this second ensure is because we now have the fastq file to check its size.
-        steps = [
-            # handle_input_fastq, # moved to outside of the steps to avoid ensures the input is interleaved by moving it through rename or reformat
-            # filter_by_tile, # filters out reads by tile
-            filter_known_dna,  # filters out known DNA sequences
-            decontaminate_rrna,  # decontaminates rRNA sequences
-            filter_identified_dna,  # filters out reads that are likely host (based on the stats file of the previous step)
-            dedupe,  # removes duplicates (first round)
-            trim_adapters,  # trims adapters (clips off the adapters)
-            remove_synthetic_artifacts,  # removes synthetic artifacts (phix etc)
-            entropy_filter,  # removes reads with low entropy (poor quality)
-            error_correct_1,  # error corrects the reads (first round)
-            error_correct_2,  # error corrects the reads (second round)
-            merge_reads,  # merges reads with negative insert size (i.e. overlapping)
-            quality_trim_unmerged,  # quality trims the unmerged reads
-            # dedupe, # removes duplicates (second round - after the above processing some reads may have been "corrected"/modified and are now duplicates)
-        ]
+    base_dir = Path(config.temp_dir)
+    config.save(output_path=base_dir / "rp_filter_reads_config.json")  # type: ignore
+    fastq_file, config.file_name = handle_input_fastq(config)
+    config.logger.info(f"file_name: {config.file_name}")
+    config.logger.info(f"fastq_file: {fastq_file}")
+    output_tracker.add_file(
+        filename=str(config.input),
+        command="handle_input_fastq",
+        command_name="reformat",
+        is_merged=False,
+    )  # retroactive addition
+    config.memory = ensure_memory(config.memory, fastq_file)  # type: ignore ------ this second ensure is because we now have the fastq file to check its size.
+    steps = [
+        # handle_input_fastq, # moved to outside of the steps to avoid ensures the input is interleaved by moving it through rename or reformat
+        # filter_by_tile, # filters out reads by tile
+        filter_known_dna,  # filters out known DNA sequences
+        decontaminate_rrna,  # decontaminates rRNA sequences
+        filter_identified_dna,  # filters out reads that are likely host (based on the stats file of the previous step)
+        dedupe,  # removes duplicates (first round)
+        trim_adapters,  # trims adapters (clips off the adapters)
+        remove_synthetic_artifacts,  # removes synthetic artifacts (phix etc)
+        entropy_filter,  # removes reads with low entropy (poor quality)
+        error_correct_1,  # error corrects the reads (first round)
+        error_correct_2,  # error corrects the reads (second round)
+        merge_reads,  # merges reads with negative insert size (i.e. overlapping)
+        quality_trim_unmerged,  # quality trims the unmerged reads
+        # dedupe, # removes duplicates (second round - after the above processing some reads may have been "corrected"/modified and are now duplicates)
+    ]
 
-        current_input = fastq_file
-        from rich.spinner import SPINNERS, Spinner
+    current_input = fastq_file
+    from rich.spinner import SPINNERS, Spinner
 
-        SPINNERS["myspinner"] = {"interval": 2500, "frames": ["🦠 ", "🧬 ", "🔬 "]}
+    SPINNERS["myspinner"] = {"interval": 2500, "frames": ["🦠 ", "🧬 ", "🔬 "]}
 
-        with console.status(
-            f"[bold green] Working on     ", spinner="myspinner"
-        ) as status:
-            for step in steps:
-                step_name = (
-                    step.__name__
-                )  # if not callable(step) else step.__name__.split()[1]
-                if step_name not in config.skip_steps:
-                    config.logger.info(f"Starting step: {step_name}   ")
-                    status.update(f"[bold green]Current Step: {step_name}   ")
+    with console.status(
+        f"[bold green] Working on     ", spinner="myspinner"
+    ) as status:
+        for step in steps:
+            step_name = (
+                step.__name__
+            )  # if not callable(step) else step.__name__.split()[1]
+            if step_name not in config.skip_steps:
+                config.logger.info(f"Starting step: {step_name}   ")
+                status.update(f"[bold green]Current Step: {step_name}   ")
 
-                    # Check for existing output file
-                    expected_output = Path(f"{step_name}_{config.file_name}.fq.gz")
-                    if config.skip_existing and check_existing_file(expected_output):
-                        config.logger.info(
-                            f"Skipping {step_name} as output file already exists"
-                        )
-                        current_input = expected_output
-                        continue
+                # Check for existing output file
+                expected_output = Path(f"{step_name}_{config.file_name}.fq.gz")
+                if config.skip_existing and check_existing_file(expected_output):
+                    config.logger.info(
+                        f"Skipping {step_name} as output file already exists"
+                    )
+                    current_input = expected_output
+                    continue
 
-                    signal.signal(signal.SIGALRM, timeout_handler)
-                    signal.alarm(config.step_timeout)  # Set timeout to 10min
+                signal.signal(signal.SIGALRM, timeout_handler)
+                signal.alarm(config.step_timeout)  # Set timeout to 10min
 
-                    try:
-                        # config.logger.info(f"Running step: {step_name}")
-                        result = step(current_input, config, output_tracker)
-                    except TimeoutError:
-                        config.logger.error(
-                            f"Step {step_name} timed out after {config.step_timeout} seconds"
-                        )
-                        continue
-                    finally:
-                        signal.alarm(0)  # Disable the alarm
+                try:
+                    # config.logger.info(f"Running step: {step_name}")
+                    result = step(current_input, config, output_tracker)
+                except TimeoutError:
+                    config.logger.error(
+                        f"Step {step_name} timed out after {config.step_timeout} seconds"
+                    )
+                    continue
+                finally:
+                    signal.alarm(0)  # Disable the alarm
 
-                    if result == "host_empty":
-                        config.logger.error(
-                            "No potential host genomes identified. Skipping to the next step."
-                        )
-                        continue
+                if result == "host_empty":
+                    config.logger.error(
+                        "No potential host genomes identified. Skipping to the next step."
+                    )
+                    continue
 
-                    if isinstance(result, tuple):
-                        current_input = output_tracker.get_latest_non_merged_file()
-                    else:
-                        current_input = result
-
-                    config.logger.info(f"Finished step: {step_name}")
+                if isinstance(result, tuple):
+                    current_input = output_tracker.get_latest_non_merged_file()
                 else:
-                    config.logger.info(f"Skipping step: {step_name}")
+                    current_input = result
 
-        # Final deduplication step
-        merged_file = output_tracker.get_latest_merged_file()
-        if not (
-            config.skip_existing
-            and check_existing_file(Path(f"dedup_merged_{config.file_name}.fq.gz"))
-        ):
-            dedup_merged = dedupe(
-                Path(merged_file), config, output_tracker, "final_merged"
-            )
+                config.logger.info(f"Finished step: {step_name}")
+            else:
+                config.logger.info(f"Skipping step: {step_name}")
 
-        unmerged_file = output_tracker.get_latest_non_merged_file()
-        if not (
-            config.skip_existing
-            and check_existing_file(Path(f"dedup_interleaved_{config.file_name}.fq.gz"))
-        ):
-            dedup_interleaved = dedupe(
-                Path(unmerged_file), config, output_tracker, "final_interleaved"
-            )
-
-        generate_reports(
-            config.file_name, config.threads, config.skip_existing, config.logger
+    # Final deduplication step
+    merged_file = output_tracker.get_latest_merged_file()
+    if not (
+        config.skip_existing
+        and check_existing_file(Path(f"dedup_merged_{config.file_name}.fq.gz"))
+    ):
+        dedup_merged = dedupe(
+            Path(merged_file), config, output_tracker, "final_merged"
         )
-        cleanup_and_move_files(config.tmp_dir, config.keep_tmp, output_tracker, config)
-        # output_tracker.to_csv(f"{config.output_dir}/run_info/output_tracker.csv")
-        if not config.keep_tmp:
-            try:
-                os.unlink(fastq_file)
-            except Exception as e:
-                config.logger.error(
-                    f"Error deleting input file {config.input}: {str(e)}"
-                )
-        config.logger.info("Read processing completed successfully.")
+
+    unmerged_file = output_tracker.get_latest_non_merged_file()
+    if not (
+        config.skip_existing
+        and check_existing_file(Path(f"dedup_interleaved_{config.file_name}.fq.gz"))
+    ):
+        dedup_interleaved = dedupe(
+            Path(unmerged_file), config, output_tracker, "final_interleaved"
+        )
+
+    generate_reports(
+        config.file_name, config.threads, config.skip_existing, config.logger
+    )
+    cleanup_and_move_files(config, output_tracker)
+    # output_tracker.to_csv(f"{config.output_dir}/run_info/output_tracker.csv")
+    if not config.keep_tmp:
+        try:
+            os.unlink(fastq_file)
+        except Exception as e:
+            config.logger.error(
+                f"Error deleting input file {config.input}: {str(e)}"
+            )
+    config.logger.info("Read processing completed successfully.")
 
 
 @click.command(no_args_is_help=True)
@@ -269,7 +273,7 @@ def process_reads(
     "--input",
     required=False,
     help="""Input raw reads file(s) or directory containing them. For paired-end reads, you can provide an interleaved file or the R1 and R2 files separated by comma. Example: -i sample_R1.fastq.gz,sample_R2.fastq.gz \n
-If --input is a directory, all fastq files in the directory will be used - paired end files of the same base name would be assumed as from the same sample, otherwise a fastq is assumed interleaved. All interleaved and R1/R2 files would be concatenated into a single file before processing, and certain processing steps would be skipped as they assume a single sequencing library (filter_by_tile, error_correct_1, error_correct_2).""",
+If --input is a directory, all fastq files in the directory will be used - paired end files of the same base name would be assumed as from the same sample, otherwise a fastq is assumed interleaved. All interleaved and R1/R2 files would be concatenated into a single file before processing, and certain processing steps would be skipped as they assume a single sequencing library (error_correct_1, error_correct_2).""",
 )
 @click.option(
     "-D",
@@ -334,11 +338,31 @@ If --input is a directory, all fastq files in the directory will be used - paire
     help="Do not overwrite the output directory if it already exists",
 )
 @click.option(
+    "-z",
+    "--zip-reports",
+    is_flag=True,
+    default=False,
+    help="Zip the reports into a single file",
+)
+@click.option(
     "-ll",
     "--log-level",
     default="info",
     hidden=True,
     help="Log level. Options: debug, info, warning, error, critical",
+)
+@click.option(
+    "--temp-dir",
+    default=None,
+    hidden=True,
+    help="Directory for temporary files. If not provided, will create one inside the output directory.",
+)
+@click.option(
+    "-mg",
+    "--max-genomes",
+    default=None,
+    hidden=True,
+    help="Maximum number of genomes to keep in the output. Example: --max-genomes 10",
 )
 def filter_reads(
     threads,
@@ -356,7 +380,10 @@ def filter_reads(
     step_timeout,
     file_name,
     overwrite,
+    zip_reports,
     log_level,
+    max_genomes,
+    temp_dir,
 ):
     """
     Process RNA-seq (transcriptome, RNA virome, metatranscriptomes) Illumina raw reads.
@@ -390,6 +417,8 @@ def filter_reads(
             step_timeout=step_timeout,
             file_name=file_name,
             log_level=log_level,
+            max_genomes=max_genomes,
+            temp_dir=temp_dir,
         )
 
     if config.known_dna is None:
@@ -415,43 +444,60 @@ def filter_reads(
 
 def generate_reports(file_name: str, threads: int, skip_existing: bool, logger):
     import glob
-    import subprocess
 
-    # Generate Falco report
-    falco_output = Path("Falco_post_trim_reads")
+    # Generate falco report
+    falco_output = config.temp_dir / "falco_post_trim_reads"
     falco_output.mkdir(exist_ok=True)
-    all_remaining_fastqs = glob.glob(f"*final*.fq.gz", recursive=True)
-    falco_cmd = [
-        "falco",
-        "-t",
-        str(threads),
-        *all_remaining_fastqs,
-        "-o",
-        str(falco_output),
-    ]
+    all_remaining_fastqs = glob.glob(str(config.temp_dir / f"*final*.fq.gz"), recursive=True)
 
     if (
         not skip_existing
         or not (falco_output / f"merged_{file_name}_falco.html").exists()
     ):
-        subprocess.run(falco_cmd, check=True)
-        logger.info("Falco report generated")
-    else:
-        logger.info("Falco report already exists, skipping")
+        run_command_comp(
+            base_cmd="falco",
+            positional_args=[*all_remaining_fastqs],
+            params={
+                "t": str(threads),
+                "outdir": str(falco_output)
+                    },
+            assign_operator=" ",
+            positional_args_location="end",
+            logger=logger,
+            # output_file=str(falco_output / f"{file_name}_falco.html"),
+            skip_existing=skip_existing,
+            check_status=True,
+            check_output=False
+        )
+        logger.info("falco report generated")
         tools.append("falco")
+    else:
+        logger.info("falco report already exists, skipping")
 
     # Run MultiQC
-    multiqc_output = Path(f"{file_name}_multiqc")
-    multiqc_cmd = ["multiqc", "./", "--outdir", str(multiqc_output)]
+    multiqc_output =  config.temp_dir / Path(f"{file_name}_multiqc")
 
     if not skip_existing or not (multiqc_output / "multiqc_report.html").exists():
-        subprocess.run(multiqc_cmd, check=True)
+        run_command_comp(
+            base_cmd="multiqc",
+            positional_args=["--clean-up", "--force", "./"],
+            params={
+                "outdir": str(multiqc_output)
+            },
+            assign_operator=" ",
+            positional_args_location="end",
+            logger=logger,
+            output_file=str(multiqc_output / "multiqc_report.html"),
+            skip_existing=skip_existing,
+            check_status=True,
+            check_output=True
+        )
         logger.info("MultiQC report generated")
         tools.append("multiqc")
     else:
         logger.info("MultiQC report already exists, skipping")
 
-    shutil.rmtree(falco_output)
+    # shutil.rmtree(falco_output)
 
 
 def identify_read_pair_files_in_folder(
@@ -568,51 +614,51 @@ def handle_input_fastq(config: ReadFilterConfig) -> tuple[Path, str]:
     return final_interleaved, file_name
 
 
-def filter_by_tile(
-    input_file: Path, config: ReadFilterConfig, output_tracker: OutputTracker
-) -> Path:
-    """Filter reads by tile."""  # this commands tends to break so it has extra logging and is skipped if error occurs.
-    from bbmapy import filterbytile
-    import time
+# def filter_by_tile(
+#     input_file: Path, config: ReadFilterConfig, output_tracker: OutputTracker
+# ) -> Path:
+#     """Filter reads by tile."""  # this commands tends to break so it has extra logging and is skipped if error occurs.
+#     from bbmapy import filterbytile
+#     import time
 
-    config.logger.info(f"Starting: Filter by Tile for file {input_file}")
-    output_file = f"filter_by_tile_{config.file_name}.fq.gz"
+#     config.logger.info(f"Starting: Filter by Tile for file {input_file}")
+#     output_file = config.temp_dir / f"filter_by_tile_{config.file_name}.fq.gz"
 
-    try:
-        # config.logger.info("Preparing to run filterbytile")
-        params = config.step_params["filter_by_tile"]
-        config.logger.info(f"Parameters for filterbytile: {params}")
+#     try:
+#         # config.logger.info("Preparing to run filterbytile")
+#         params = config.step_params["filter_by_tile"]
+#         config.logger.info(f"Parameters for filterbytile: {params}")
 
-        start_time = time.time()
-        filterbytile(
-            in_file=str(input_file),
-            out=str(output_file),
-            Xmx=config.memory["giga"],
-            threads=str(config.threads),
-            overwrite="t",
-            interleaved="t",
-            # monitor= config.step_timeout,
-            **params,
-        )
-        end_time = time.time()
+#         start_time = time.time()
+#         filterbytile(
+#             in_file=str(input_file),
+#             out=str(output_file),
+#             Xmx=config.memory["giga"],
+#             threads=str(config.threads),
+#             overwrite="t",
+#             interleaved="t",
+#             # monitor= config.step_timeout,
+#             **params,
+#         )
+#         end_time = time.time()
 
-        config.logger.info(
-            f"filterbytile completed in {end_time - start_time:.2f} seconds"
-        )
+#         config.logger.info(
+#             f"filterbytile completed in {end_time - start_time:.2f} seconds"
+#         )
 
-        if not Path(output_file).exists():
-            raise FileNotFoundError(
-                f"Expected output file {output_file} was not created"
-            )
+#         if not Path(output_file).exists():
+#             raise FileNotFoundError(
+#                 f"Expected output file {output_file} was not created"
+#             )
 
-        output_tracker.add_file(
-            str(output_file), "filter_by_tile", "filterbytile.sh", is_merged=False
-        )
-        return Path(output_file)
-    except Exception as e:
-        config.logger.error(f"Error in filter_by_tile: {str(e)}")
-        config.logger.error("Proceeding with last usable input")
-        return input_file
+#         output_tracker.add_file(
+#             str(output_file), "filter_by_tile", "filterbytile.sh", is_merged=False
+#         )
+#         return Path(output_file)
+#     except Exception as e:
+#         config.logger.error(f"Error in filter_by_tile: {str(e)}")
+#         config.logger.error("Proceeding with last usable input")
+#         return input_file
 
 
 def filter_known_dna(
@@ -635,7 +681,7 @@ def filter_known_dna(
         context = click.Context(mask_dna, ignore_unknown_options=True)
         context.invoke(mask_dna, **mask_args)
 
-    output_file = f"filter_known_dna_{config.file_name}.fq.gz"
+    output_file = config.temp_dir / f"filter_known_dna_{config.file_name}.fq.gz"
     try:
         params = config.step_params["filter_known_dna"]
         bbduk(
@@ -647,7 +693,7 @@ def filter_known_dna(
             threads=str(config.threads),
             overwrite="t",
             interleaved="t",
-            stats=f"stats_filter_known_dna_{config.file_name}.txt",
+            stats= config.temp_dir / f"stats_filter_known_dna_{config.file_name}.txt",
         )
         output_tracker.add_file(
             str(output_file), "filter_known_dna", "bbduk.sh", is_merged=False
@@ -664,7 +710,7 @@ def decontaminate_rrna(
     """Decontaminate rRNA sequences."""
     from bbmapy import bbduk
 
-    output_file = f"decontaminate_rrna_{config.file_name}.fq.gz"
+    output_file = config.temp_dir / f"decontaminate_rrna_{config.file_name}.fq.gz"
     rrna_fas1 = Path(config.datadir) / "rRNA/SILVA_138_merged_masked.fa"  # type: ignore
     rrna_fas2 = Path(config.datadir) / "rRNA/rmdup_rRNA_ncbi_masked.fa"  # type: ignore
     try:
@@ -678,7 +724,7 @@ def decontaminate_rrna(
             threads=str(config.threads),
             overwrite="t",
             interleaved="t",
-            stats=f"stats_decontaminate_rrna_{config.file_name}.txt",
+            stats= config.temp_dir / f"stats_decontaminate_rrna_{config.file_name}.txt",
         )
         output_tracker.add_file(
             str(output_file), "decontaminate_rrna", "bbduk.sh", is_merged=False
@@ -690,13 +736,13 @@ def decontaminate_rrna(
 
 
 def fetch_and_mask_genomes(
-    input_file: Path, config: ReadFilterConfig, output_tracker: OutputTracker
+    config: ReadFilterConfig
 ) -> Union[str, Path]:
     """Fetch and mask genomes."""
     from rolypoly.utils.fax import fetch_genomes, mask_dna
 
     if "filter_rp_identified_DNA_genomes" not in config.skip_steps:
-        stats_file = Path(f"stats_decontaminate_rrna_{config.file_name}.txt")
+        stats_file = Path(f"stats_decontaminate_rrna_{config.file_name}.txt").absolute()
         if not stats_file.exists():
             config.logger.warning(
                 f"Stats file {stats_file} not found. Skipping fetch and mask genomes step."
@@ -704,30 +750,43 @@ def fetch_and_mask_genomes(
             config.skip_steps.append("filter_identified_dna")
             return "host_empty"
 
-        fetched_dna_dir = Path("fetched_dna_genomes")
+        # Create a dedicated subfolder for fetched genomes using absolute paths
+        fetched_dna_dir = config.temp_dir / "fetched_dna" / "genomes"
         fetched_dna_dir.mkdir(parents=True, exist_ok=True)
 
-        gbs_file = fetched_dna_dir / "gbs_50m.fasta"
-        fetch_genomes(str(stats_file), str(gbs_file), threads=config.threads)
+        # Get absolute paths
+        abs_gbs_file = (fetched_dna_dir / "gbs_50m.fasta").absolute()
+        abs_tmp_stats = (fetched_dna_dir / stats_file.name).absolute()
 
-        if gbs_file.stat().st_size < 20:
+        # Copy the stats file to the genomes directory using absolute paths
+        shutil.copy2(str(stats_file), str(abs_tmp_stats))
+
+        # Run fetch_genomes directly in the genomes directory with absolute paths
+        fetch_genomes(str(abs_tmp_stats), str(abs_gbs_file), threads=config.threads, max2take=config.max_genomes)
+        if not abs_gbs_file.exists() or abs_gbs_file.stat().st_size < 20:
             config.logger.warning(
                 "The file with the fetched genomes of identified potential hosts appears empty. Step will be skipped."
             )
             return "host_empty"
 
+        # Clean up the copied stats file
+        try:
+            abs_tmp_stats.unlink()
+        except Exception as e:
+            config.logger.warning(f"Could not remove temporary stats file: {str(e)}")
+
     if "mask_fetched_dna" not in config.skip_steps:
         mask_args = {
             "threads": config.threads,
             "memory": config.memory["giga"],
-            "output": f"masked_gbs_50m_{config.file_name}.fasta",
+            "output": str(fetched_dna_dir / f"masked_gbs_50m_{config.file_name}.fasta"),
             "flatten": False,
-            "input": fetched_dna_dir / "gbs_50m.fasta",
+            "input": str(abs_gbs_file),
         }
         context = click.Context(mask_dna, ignore_unknown_options=True)
         context.invoke(mask_dna, **mask_args)
-        return f"masked_gbs_50m_{config.file_name}.fasta"
-    return gbs_file
+        return fetched_dna_dir / f"masked_gbs_50m_{config.file_name}.fasta"
+    return abs_gbs_file
 
 
 def filter_identified_dna(
@@ -736,22 +795,22 @@ def filter_identified_dna(
     """Filter fetched DNA genomes."""
     from bbmapy import bbduk
 
-    host_file = fetch_and_mask_genomes(input_file, config, output_tracker)
+    host_file = fetch_and_mask_genomes(config)
     if host_file == "host_empty":
         return "host_empty"
-    output_file = f"filter_identified_dna_{config.file_name}.fq.gz"
+    output_file = config.temp_dir / f"filter_identified_dna_{config.file_name}.fq.gz"
     try:
         params = config.step_params["filter_identified_dna"]
         bbduk(
             in_file=str(input_file),
             out=str(output_file),
-            ref=f"masked_gbs_50m_{config.file_name}.fasta",
+            ref=str(host_file),
             **params,
             Xmx=config.memory["giga"],
             threads=str(config.threads),
             overwrite="t",
             interleaved="t",
-            stats=f"stats_filter_identified_dna_{config.file_name}.txt",
+            stats= config.temp_dir / f"stats_filter_identified_dna_{config.file_name}.txt",
         )
         output_tracker.add_file(
             str(output_file), "filter_identified_dna", "bbduk.sh", is_merged=False
@@ -772,13 +831,13 @@ def dedupe(
     from bbmapy import clumpify
 
     if phase == "first":
-        output_file = f"dedupe_first_{config.file_name}.fq.gz"
+        output_file = config.temp_dir / f"dedupe_first_{config.file_name}.fq.gz"
         is_merged = False
     elif phase == "final_merged":
-        output_file = f"dedupe_final_merged_{config.file_name}.fq.gz"
+        output_file = config.temp_dir / f"dedupe_final_merged_{config.file_name}.fq.gz"
         is_merged = True
     elif phase == "final_interleaved":
-        output_file = f"dedupe_final_interleaved_{config.file_name}.fq.gz"
+        output_file = config.temp_dir / f"dedupe_final_interleaved_{config.file_name}.fq.gz"
         is_merged = False
     try:
         params = config.step_params["dedupe"]
@@ -807,7 +866,7 @@ def trim_adapters(
     """Trim adapters from reads."""
     from bbmapy import bbduk
 
-    output_file = f"trim_adapters_{config.file_name}.fq.gz"
+    output_file = config.temp_dir / f"trim_adapters_{config.file_name}.fq.gz"
     adapters_new = Path(config.datadir) / "contam/AFire_illuminatetritis1223.fa"
     adapters_bb = Path(config.datadir) / "contam/bbmap_adapters.fa"
     try:
@@ -821,7 +880,7 @@ def trim_adapters(
             threads=str(config.threads),
             overwrite="t",
             interleaved="t",
-            stats=f"stats_trim_adapters_{config.file_name}.txt",
+            stats= config.temp_dir / f"stats_trim_adapters_{config.file_name}.txt",
         )
         output_tracker.add_file(
             str(output_file), "trim_adapters", "bbduk.sh", is_merged=False
@@ -839,7 +898,7 @@ def remove_synthetic_artifacts(
     """Remove synthetic artifacts (phix etc) from reads."""
     from bbmapy import bbduk
 
-    output_file = f"remove_synthetic_artifacts_{config.file_name}.fq.gz"
+    output_file = config.temp_dir / f"remove_synthetic_artifacts_{config.file_name}.fq.gz"
     try:
         params = config.step_params["remove_synthetic_artifacts"]
         bbduk(
@@ -850,7 +909,7 @@ def remove_synthetic_artifacts(
             threads=str(config.threads),
             overwrite="t",
             interleaved="t",
-            stats=f"stats_remove_synthetic_artifacts_{config.file_name}.txt",
+            stats= config.temp_dir / f"stats_remove_synthetic_artifacts_{config.file_name}.txt",
         )
         output_tracker.add_file(
             str(output_file), "remove_synthetic_artifacts", "bbduk.sh", is_merged=False
@@ -868,7 +927,7 @@ def entropy_filter(
     """Apply entropy filter to reads."""
     from bbmapy import bbduk
 
-    output_file = f"entropy_filter_{config.file_name}.fq.gz"
+    output_file = config.temp_dir / f"entropy_filter_{config.file_name}.fq.gz"
     try:
         params = config.step_params["entropy_filter"]
         bbduk(
@@ -896,7 +955,7 @@ def error_correct_1(
     """Perform error correction on reads."""
     from bbmapy import bbmerge
 
-    output_file = f"error_correct_1{config.file_name}.fq.gz"
+    output_file = config.temp_dir / f"error_correct_1{config.file_name}.fq.gz"
     try:
         params = config.step_params["error_correct_1"]
         bbmerge(
@@ -924,7 +983,7 @@ def error_correct_2(
     """Perform error correction on reads."""
     from bbmapy import clumpify
 
-    output_file = f"error_correct_2{config.file_name}.fq.gz"
+    output_file = config.temp_dir / f"error_correct_2{config.file_name}.fq.gz"
     try:
         params = config.step_params["error_correct_2"]
         clumpify(
@@ -952,8 +1011,8 @@ def merge_reads(
     """Merge paired-end reads."""
     from bbmapy import bbmerge
 
-    output_file = f"merged_{config.file_name}.fq.gz"
-    unmerged_file = f"unmerged_{config.file_name}.fq.gz"
+    output_file = config.temp_dir / f"merged_{config.file_name}.fq.gz"
+    unmerged_file = config.temp_dir / f"unmerged_{config.file_name}.fq.gz"
     try:
         params = config.step_params["merge_reads"]
         bbmerge(
@@ -965,7 +1024,7 @@ def merge_reads(
             threads=str(config.threads),
             overwrite="t",
             interleaved="t",
-            outadapter=f"out_adapter_merged_{config.file_name}.txt",
+            outadapter=config.temp_dir / f"out_adapter_merged_{config.file_name}.txt",
         )
         output_tracker.add_file(
             str(output_file), "merge_reads", "bbmerge.sh", is_merged=True
@@ -987,7 +1046,7 @@ def quality_trim_unmerged(
     from bbmapy import bbduk
 
     input_file = Path(output_tracker.get_latest_non_merged_file())
-    output_file = f"qtrimmed_{config.file_name}.fq.gz"
+    output_file = config.temp_dir / f"qtrimmed_{config.file_name}.fq.gz"
     try:
         params = config.step_params["quality_trim_unmerged"]
         bbduk(
@@ -1010,45 +1069,88 @@ def quality_trim_unmerged(
 
 
 def cleanup_and_move_files(
-    work_dir: Path,
-    keep_tmp: bool,
-    output_tracker: OutputTracker,
     config: ReadFilterConfig,
+    output_tracker: OutputTracker,
 ):
-    run_info_dir = Path(config.output_dir) / "run_info"
+    """Clean up and move files to their final locations.
+    Args:
+        output_tracker: Tracks output files
+        config: Configuration object
+    """
+    # Ensure all paths are absolute
+    temp_dir = Path(config.temp_dir).resolve()
+    output_dir = Path(config.output_dir).resolve()
+    
+    # Create run_info directory in the final output location
+    run_info_dir = output_dir / "run_info"
     run_info_dir.mkdir(parents=True, exist_ok=True)
+    
 
     # Move config file and output tracker CSV to run_info
     config.save(run_info_dir / "rp_filter_reads_config.json")
     output_tracker.to_csv(run_info_dir / "output_tracker.csv")
-    # Move all .txt files to run_info
-    for txt_file in work_dir.glob("*.txt"):
-        config.logger.info(f"moving {txt_file} to {str(run_info_dir / txt_file.name)}")  # type: ignore
-        shutil.move(str(txt_file), str(run_info_dir / txt_file.name))
 
-    # Move all .html files to run_info
-    for html_file in work_dir.rglob("*.html"):
-        config.logger.info(
-            f"moving {html_file} to {str(run_info_dir / html_file.name)}"
-        )  # type: ignore
-        shutil.move(str(html_file), str(run_info_dir / html_file.name))
+    # Move MultiQC and fastqc/falco reports to run_info
+    for pattern in ["*multiqc", "*fastqc*", "falco*"]:
+        for qc_dir in temp_dir.glob(pattern):
+            if qc_dir.exists():
+                # breakpoint()
+                config.logger.info(f"Moving {qc_dir} to run_info")
+                try:
+                    target = run_info_dir / qc_dir.name
+                    if target.exists():
+                        shutil.rmtree(str(target))
+                    shutil.move(str(qc_dir), str(target))
+                except Exception as e:
+                    config.logger.warning(f"Could not move {qc_dir}: {str(e)}")
 
+    # Move all stats and adapter files to run_info
+    for pattern in ["stats_*.txt", "out_adapter_*.txt"]:
+        for stat_file in temp_dir.glob(pattern):
+            if stat_file.exists():
+                try:
+                    shutil.move(str(stat_file), str(run_info_dir / stat_file.name))
+                except Exception as e:
+                    config.logger.warning(f"Could not move {stat_file} to run_info: {str(e)}")
+
+    # Get final output files
     final_merged = output_tracker.get_latest_merged_file()
     final_interleaved = output_tracker.get_latest_non_merged_file()
-    for item in [final_merged, final_interleaved]:
-        try:
-            shutil.move(item, Path(config.output_dir))  # type: ignore
-            # item.rename(Path(config.output_dir) / item.name)
-        except:
-            config.logger.warning(
-                f"Item {item} existed in the destination path, it would not be moved to avoid overwriting something of the user     This could happen if multiple runs in the same working directory were launched. It will be deleted along with the tmp workign directory    "
-            )  # type: ignore
 
-    # Move remaining files from work_dir to parent directory
-    if not keep_tmp:
+    # Move final output files to the output directory
+    for item in [final_merged, final_interleaved]:
+        if item and Path(item).exists():
+            try:
+                target = output_dir / Path(item).name
+                if target.exists():
+                    target.unlink()
+                shutil.move(str(item), str(target))
+            except Exception as e:
+                config.logger.warning(
+                    f"Could not move {item} to output directory: {str(e)}"
+                )
+
+    # If keeping temporary files, move fetched_dna to run_info
+    if config.keep_tmp:
+        fetched_dna_dir = temp_dir / "fetched_dna"
+        if fetched_dna_dir.exists():
+            try:
+                target = run_info_dir / "fetched_dna"
+                if target.exists():
+                    shutil.rmtree(str(target))
+                shutil.move(str(fetched_dna_dir), str(target))
+            except Exception as e:
+                config.logger.warning(f"Could not move fetched_dna directory: {str(e)}")
+
+    # Clean up temporary directory if not keeping it
+    if not config.keep_tmp and temp_dir != output_dir:
         try:
-            shutil.rmtree(work_dir)
-        except:
-            config.logger.warning(f"Work directory {work_dir} could not be removed")  # type: ignore
-        # os.unlink(config.input)
-        config.logger.info(f"Work directory {work_dir} cleaned up and removed")  # type: ignore
+            shutil.rmtree(temp_dir)
+            config.logger.info(f"Temporary directory {temp_dir} cleaned up and removed")
+        except Exception as e:
+            config.logger.error(f"Error removing temporary directory: {str(e)}")
+            # Don't raise the error since we've already moved the important files
+    if config.zip_reports:
+        shutil.make_archive(base_dir=str(run_info_dir / "run_info"),format= "gztar",base_name=f"{config.file_name}_run_info")
+        breakpoint()
+

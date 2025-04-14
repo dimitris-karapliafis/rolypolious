@@ -38,16 +38,15 @@ Check out our [project roadmap and TODO list](https://docs.google.com/spreadshee
 
 
 3. **Temporary Files**:
-   - Optionally, create tmp directory within user's output path. see "with change_directory("/path/to/dir"):" in `rolypoly.utils.various.change_directory` for an info, or `rolypoly.commands.reads.read-filtering.py` for another example.
-   - Clean up tmp files unless `--keep-tmp` flag is used
-   - Move only final output files to user's output path
+   - Optionally, create temp directory (hidden argument in some commands --temp-dir, if not specified it's within user's output path).  
+   - When done, move only final output files to user's output path
+   - Then clean up tmp files unless `--keep-tmp` flag is used
 
 ### Testing & Benchmarking
 1. **Testing**:
    - Location: `/REDACTED_HPC_PATH/tests/rp_tests/` directory - conntains example data for different commands, seperated by input size and complexity.
 2. **Benchmarking**:
    - Use `/usr/bin/time` for runtime/memory metrics
-   - Default to "cold" starts
 
 ## Details
 For detailed API documentation, see the [API Reference](api/) section.
