@@ -19,7 +19,7 @@ class BaseConfig:
         memory (str, optional): Memory allocation (e.g., "6gb", "8000mb").
         log_file (Path, optional): Path to log file.
         input (str, optional): Input file or directory path.
-        tmp_dir (str, optional): Temporary directory path.
+        temp_dir (str, optional): Temporary directory path. if not provided, a temporary directory will be created in the output directory.
         overwrite (bool, optional): Whether to overwrite existing files.
         datadir (str, optional): Data directory path.
         log_level (str, optional): Logging level ("debug", "info", "warning", "error", "critical").
@@ -29,11 +29,11 @@ class BaseConfig:
         self,
         output: Optional[str] = "rp_out",
         config_file: Optional[Path] = None,
-        threads: int = 1,
-        memory="6gb",
+        threads: Optional[int] = 1,
+        memory: Optional[str] = "6gb",
         log_file: Optional[Path] = None,
         input: Optional[str] = None,
-        tmp_dir: Optional[str] = None,
+        temp_dir: Optional[str] = None,
         overwrite: bool = False,
         datadir: Optional[str] = None,
         log_level: str = "info",
@@ -41,12 +41,20 @@ class BaseConfig:
     ):
         from datetime import datetime
         import shutil
+
+        # Basic parameter initialization
         self.input = input
         self.threads = threads
-        # print(memory)
         self.memory = self.parse_memory(memory)
-        self.config_file = config_file
-        self.log_file = log_file
+        self.config_file = Path(config_file) if config_file else None
+        self.log_file = Path(log_file) if log_file else None
+        self.overwrite = overwrite
+        self.output = Path(output)
+        self.output_dir = self.output if self.output.is_dir() else self.output
+        self.datadir = datadir or os.environ.get("ROLYPOLY_DATA")
+        self.keep_tmp = keep_tmp
+
+        # Set up logging
         self.log_level = {
             "debug": logging.DEBUG,
             "info": logging.INFO,
@@ -55,56 +63,31 @@ class BaseConfig:
             "critical": logging.CRITICAL,
         }.get(log_level, logging.INFO)
         self.logger = self.setup_logger()
-        self.tmp_dir = tmp_dir
-        self.overwrite = overwrite
-        # self.logger.info(f"Output directory: {output_dir}")
-        # self.logger.info(f"output: {output}")
-        self.output = Path(output)
-        self.output_dir = self.output if self.output.is_dir() else self.output
-        # self.logger.info(f"Output directory: {self.output_dir}")
-        # self.logger.info(f"output: {self.output}")
-        self.datadir = datadir or os.environ.get("ROLYPOLY_DATA")
-        self.keep_tmp = keep_tmp
 
-        if not overwrite:
-            if not self.output_dir.exists():
-                # self.logger.warning(f"Output directory does not exist: {self.output_dir}")
-                self.logger.warning(f"Creating output directory: {self.output_dir}")
-                self.output_dir.mkdir(parents=True, exist_ok=True)
-            else:
-                self.logger.info(f"Output directory {self.output_dir} already exists")
-                if any(self.output_dir.iterdir()):
-                    self.logger.warning(
-                        "Output directory is not empty and overwrite is set to False. This might cause unexpected behavior."
-                    )
-
-        if tmp_dir is not None:
-            # check if tmp_dir exists
-            if Path(tmp_dir).exists():
-                self.tmp_dir = Path(tmp_dir).absolute().resolve()
-                self.logger.debug(
-                    f"Temporary directory {self.tmp_dir} already exists, using it as is"
-                )
-                if overwrite:
-                    self.logger.debug(
-                        f"overwrite set to True, Overwriting temporary directory {self.tmp_dir}"
-                    )
-                    shutil.rmtree(self.tmp_dir)
-                    self.tmp_dir.mkdir(parents=True, exist_ok=True)
-            else:
-                self.tmp_dir = Path(tmp_dir)
-                self.logger.debug(
-                    f"Temporary directory {self.tmp_dir} does not exist, creating it"
-                )
-                self.tmp_dir.mkdir(parents=True, exist_ok=True)
-
-        else:
-            self.tmp_dir = (
-                self.output_dir
-                / f"rolypoly_tmp_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        # Create output directory if needed
+        if not overwrite and not self.output_dir.exists():
+            self.logger.info(f"Creating output directory: {self.output_dir}")
+            self.output_dir.mkdir(parents=True, exist_ok=True)
+        elif not overwrite and any(self.output_dir.iterdir()):
+            self.logger.warning(
+                "Output directory is not empty and overwrite is set to False. This might cause unexpected behavior."
             )
-            self.logger.debug(f"Creating temporary directory: {self.tmp_dir}")
-            self.tmp_dir.mkdir(parents=True, exist_ok=True)
+
+        # define temporary directory
+        self.temp_dir = (Path(temp_dir).absolute() if temp_dir else 
+                        (self.output_dir / f"rolypoly_tmp_{datetime.now().strftime('%Y%m%d_%H%M%S')}").absolute())
+
+        # clean existing temporary directory if overwrite is set to True
+        if self.temp_dir.exists():
+            if overwrite:
+                self.logger.debug(f"Cleaning existing temporary directory {self.temp_dir}")
+                shutil.rmtree(self.temp_dir)
+            else:
+                self.logger.warning(f"Temporary directory {self.temp_dir} already exists. Set overwrite to True to clean it.")
+
+        # create temporary directory 
+        self.logger.debug(f"Creating temporary directory: {self.temp_dir}")
+        self.temp_dir.mkdir(parents=True, exist_ok=True)
 
     def setup_logger(self) -> logging.Logger:
         """Setup logger for the configuration"""

@@ -631,7 +631,7 @@ if __name__ == "__main__":
 # # Test #
 # THREADS=4
 # MEMORY=40g
-# fetched_genomes /REDACTED_HPC_PATH/rolypoly/bench/test_sampled_005_bb_metaTs_spiced_RVMT/tmp_dir_sampled_005_bb_metaTs_spiced_RVMT/stats_rRNA_filt_sampled_005_bb_metaTs_spiced_RVMT.txt output.fasta
+# fetched_genomes /REDACTED_HPC_PATH/rolypoly/bench/test_sampled_005_bb_metaTs_spiced_RVMT/temp_dir_sampled_005_bb_metaTs_spiced_RVMT/stats_rRNA_filt_sampled_005_bb_metaTs_spiced_RVMT.txt output.fasta
 # input_file=/REDACTED_HPC_PATH/rolypoly/data/output.fasta
 # bbduk.sh ref=$input_file sam=mapped.sam k=21 maskmiddle=t in=tmp_target.fas overwrite=true threads=$THREADS  -Xmx"$MEMORY"
 

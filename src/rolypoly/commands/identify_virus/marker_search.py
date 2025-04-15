@@ -22,7 +22,7 @@ class RVirusSearchConfig(BaseConfig):
             config_file=kwargs.get("config_file"),
             overwrite=kwargs.get("overwrite"),
             log_level=kwargs.get("log_level"),
-            tmp_dir=kwargs.get("tmp_dir"),
+            temp_dir=kwargs.get("temp_dir"),
         )  # initialize the BaseConfig class
         # initialize the rest of the parameters (i.e. the ones that are not in the BaseConfig class)
         self.dbs = kwargs.get("db")
@@ -181,7 +181,7 @@ def marker_search(
     keep_tmp,
     overwrite,
     log_level,
-    tmp_dir,
+    temp_dir,
 ):
     """RNA virus marker protein search - using pre-made/user-supplied DBs.
     Most pre-made DBs are based on RdRp domain (except for geNomad).
@@ -247,7 +247,7 @@ def marker_search(
             inc_evalue=inc_evalue,
             score=score,
             aa_method=aa_method,
-            tmp_dir=tmp_dir,
+            temp_dir=temp_dir,
             db=db,
             overwrite=overwrite,
             log_level=log_level,
@@ -332,7 +332,7 @@ def marker_search(
 
     if input_alpha == "nucl":
         config.logger.info(f"Input identified as nucl")
-        amino_file = str(config.tmp_dir / f"{config.name}")
+        amino_file = str(config.temp_dir / f"{config.name}")
         if config.aa_method == "pyrodigal":
             config.logger.info("Predicting ORFs using pyrodigal-gv")
             amino_file = amino_file + "_pyro.faa"
@@ -363,7 +363,7 @@ def marker_search(
         # Search translated sequences against viral marker databases
         config.logger.info(f"Searching {db_name}")
         tools.append(f"{db_name}")
-        tmp_output = config.tmp_dir / f"raw_{config.name}_vs_{db_name}.tsv"
+        tmp_output = config.temp_dir / f"raw_{config.name}_vs_{db_name}.tsv"
         output_db = search_hmmdb(
             amino_file=amino_file,
             db_path=db_path,
@@ -442,8 +442,8 @@ def marker_search(
     if not config.keep_tmp:
         import shutil
 
-        shutil.rmtree(config.tmp_dir)
-        config.logger.info(f"Removed temporary directory: {config.tmp_dir}")
+        shutil.rmtree(config.temp_dir)
+        config.logger.info(f"Removed temporary directory: {config.temp_dir}")
 
     config.logger.info(f"""Finished RNA virus marker protein search using : {input} \n
                  Outputs saved to {str(Path(output))}""")
