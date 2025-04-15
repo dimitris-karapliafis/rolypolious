@@ -58,7 +58,7 @@ if [ "$mamba_installed" = false ] && [ "$conda_installed" = false ]; then
             exit 1
         fi
         tar -xvjf micromamba.tar.bz2
-        ./bin/micromamba shell init -s bash -p ~/micromamba
+        ./bin/micromamba shell init # -s bash -p ~/micromamba
         source ~/.bashrc
     else
         logit "$LOGFILE" "wget is not installed. Please install wget and try again."

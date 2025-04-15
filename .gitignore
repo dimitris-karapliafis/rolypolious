@@ -152,6 +152,8 @@ uv.lock
 # poetry
 poetry.lock
 
+#conda
+
 # pdm
 pdm.lock
 .pdm.toml
