@@ -1,4 +1,4 @@
-![RolyPoly Logo](docs/rolypoly_logo.png)
+![RolyPoly Logo](https://code.jgi.doe.gov/UNeri/rolypoly/-/raw/main/docs/rolypoly_logo.png?ref_type=heads)
 
 # RolyPoly
 
@@ -7,7 +7,7 @@ For more detailed information, please refer to the [docs](https://pages.jgi.doe.
 
 ## Installation
 We hope to have rolypoly available from bioconda in the near future.  
-In the meantime, it can be installed with the [`quick_setup.sh`](src/rolypoly/utils/setup/quick_setup.sh) script which which will also fetch the pre-generated data rolypoly will require.
+In the meantime, it can be installed with the [`quick_setup.sh`](https://code.jgi.doe.gov/UNeri/rolypoly/-/raw/main/src/rolypoly/utils/setup/quick_setup.sh) script which which will also fetch the pre-generated data rolypoly will require.
 
 ```bash
 curl -O https://code.jgi.doe.gov/UNeri/rolypoly/-/raw/main/src/rolypoly/utils/setup/quick_setup.sh && \
@@ -25,7 +25,7 @@ By default if no positional arguments are supplied, rolypoly is installed into t
 - log file in `~/RolyPoly_quick_setup.log` 
 
 ## Usage
-RolyPoly is a command-line tool with subcommands for different stages of the RNA virus identification pipeline. For a detailed help (in terminal), use `rolypoly help`. For more specific help, see the [docs](./docs/mkdocs_docs/commands/index.md).
+RolyPoly is a command-line tool with subcommands for different stages of the RNA virus identification pipeline. For a detailed help (in terminal), use `rolypoly help`. For more specific help, see the [docs](./https://pages.jgi.doe.gov/uneri/rolypoly/commands/index.md).
 
 ```bash
 rolypoly [OPTIONS] COMMAND [ARGS]...
@@ -33,13 +33,13 @@ rolypoly [OPTIONS] COMMAND [ARGS]...
 
 ## Project Status
 Active development. Currently implemented features:
-- ✅ NGS raw read filtering (Host, rRNA, adapters, artefacts) and quality control report[(`filter-reads`)](docs/mkdocs_docs/commands/read_processing.md)
-- ✅ Assembly (SPAdes, MEGAHIT and penguin) [(`assembly`)](docs/mkdocs_docs/commands/assembly.md)
-- ✅ Contig filtering and clustering [(`filter-contigs`)](docs/mkdocs_docs/commands/assembly_filtering.md)
-- ✅ Marker gene search with pyhmmer (mainly RdRps, genomad VV's or user-provided) [(`marker-search`)](docs/mkdocs_docs/commands/marker_search.md)
-- ✅ RNA secondary structure prediction, annotation and ribozyme identification [(`annotate-rna`)](docs/mkdocs_docs/commands/annotate_rna.md)
-- ✅ Nucleotide search vs known viruses [(`search-viruses`)](docs/mkdocs_docs/commands/search_viruses.md)
-<!-- - ✅ Prepare external data [(`prepare-external-data`)](docs/mkdocs_docs/commands/prepare_external_data.md)   -->
+- ✅ NGS raw read filtering (Host, rRNA, adapters, artefacts) and quality control report[(`filter-reads`)](https://pages.jgi.doe.gov/uneri/rolypoly/commands/read_processing)
+- ✅ Assembly (SPAdes, MEGAHIT and penguin) [(`assembly`)](https://pages.jgi.doe.gov/uneri/rolypoly/commands/assembly)
+- ✅ Contig filtering and clustering [(`filter-contigs`)](https://pages.jgi.doe.gov/uneri/rolypoly/commands/filter_assembly)
+- ✅ Marker gene search with pyhmmer (mainly RdRps, genomad VV's or user-provided) [(`marker-search`)](https://pages.jgi.doe.gov/uneri/rolypoly/commands/marker_search)
+- ✅ RNA secondary structure prediction, annotation and ribozyme identification [(`annotate-rna`)](https://pages.jgi.doe.gov/uneri/rolypoly/commands/annotate_rna)
+- ✅ Nucleotide search vs known viruses [(`search-viruses`)](https://pages.jgi.doe.gov/uneri/rolypoly/commands/search_viruses)
+- ✅ Prepare external data [(`prepare-external-data`)](https://pages.jgi.doe.gov/uneri/rolypoly/commands/prepare_external_data)  
 
 Under development:
 - 🚧 Protein annotation (`annotate-protein`)
@@ -49,7 +49,7 @@ Under development:
 - 🚧 Virus feature prediction (+/-ssRNA/dsRNA, circular/linear, mono/poly-segmented, capsid type, etc.) (`TBD`)
 - 🚧 Cross-sample analysis (`TBD`)
 
-For more details about the implementation status, roadmap, additional commands, and more, see the [workflow documentation](./docs/mkdocs_docs/workflow.md).
+For more details about the implementation status, roadmap, additional commands, and more, see the [workflow documentation](https://pages.jgi.doe.gov/uneri/rolypoly/workflow).
 
 ## Dependencies
 <details><summary>Click to show dependencies</summary>

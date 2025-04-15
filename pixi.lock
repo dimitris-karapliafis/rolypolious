@@ -2300,9 +2300,9 @@ packages:
   - rich-codex ; extra == 'docs'
   requires_python: '>=3.7'
 - pypi: .
-  name: rolypoly
+  name: rolypoly-bio
   version: 0.0.1
-  sha256: f18424b528f53883ce6d5a423c69c4b1ba741224a173da7e5d1e47ff7aa20a9e
+  sha256: 9981bd93f8f336e9bf7c7050ddacb42423706077cbe1318a78c20e76f6364a2a
   requires_dist:
   - bbmapy>=0.0.46,<0.0.48
   - dna-features-viewer>=3.1.4,<4
