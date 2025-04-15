@@ -1,13 +1,13 @@
 import os
 import re
 from pathlib import Path
-
+import subprocess
 
 def update_version():
     """Update version in pyproject.toml, README.md, and meta.yaml"""
     # Update pyproject.toml
     pyproject_path = Path("pyproject.toml")
-    # meta_yaml_path = Path("recipes/bbmapy/meta.yaml")
+    meta_yaml_path = Path("src/rolypoly/recipes/bbmapy/meta.yaml")
     readme_path = Path("README.md")
 
     if pyproject_path.exists():
@@ -31,6 +31,11 @@ def update_version():
         )
         readme_path.write_text(content)
         print(f"Updated README.md version to {new_version}")
+    if meta_yaml_path.exists():
+        content = meta_yaml_path.read_text()
+        content = re.sub(r'version: 0.0.\d+', f'version: {new_version}', content)
+        meta_yaml_path.write_text(content)
+        print(f"Updated meta.yaml version to {new_version}")
 
 
 def main():
@@ -43,6 +48,12 @@ def main():
     # Get and update version
     update_version()
     print("Update completed successfully!")
+    subprocess.run(['git', 'add', 'pyproject.toml', 'README.md'])
+    subprocess.run(['git', 'add', '. '])
+    subprocess.run(['git', 'commit', '-m', 'Update version'])
+    subprocess.run(['git', 'push'])
+    print("Pushed to git")
+    
 
 
 if __name__ == "__main__":

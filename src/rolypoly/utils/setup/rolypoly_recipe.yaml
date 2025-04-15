@@ -1,0 +1,44 @@
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+  
+dependencies:
+- aragorn
+- aria2
+- bowtie
+- diamond
+- linearfold
+- megahit
+- mmseqs2
+- ncbi-datasets-cli
+- pigz
+- plass
+- seqkit
+- spades
+- trnascan-se
+- falco
+
+  - pip:
+    - bbmapy
+    - dna-features-viewer
+    - genomicranges
+    - iranges
+    - lightmotif
+    - mappy
+    - matplotlib
+    - needletail
+    - polars
+    - psutil
+    - pyfastx
+    - pyhmmer
+    - pymsaviz
+    - pyranges
+    - pyrodigal-gv
+    - requests
+    - rich-click
+    - rich
+    - viennarna
+    - intervaltree
+    
+
