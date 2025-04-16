@@ -75,7 +75,7 @@ os.environ["citation_file"] = (
                 # "add-command": "hidden:rolypoly.commands.misc.add_command.add_command",
                 "fetch-sra": "rolypoly.commands.misc.fetch_sra_fastq.fetch_sra",  # Not  a click command (yet?)
                 "sequence-stats": "rolypoly.commands.misc.sequence_stats.sequence_stats",
-                "visualize": "rolypoly.commands.misc.visualize.visualize",
+                # "visualize": "rolypoly.commands.virotype.visualize.visualize",
                 "quick-taxonomy": "rolypoly.commands.misc.quick_taxonomy.quick_taxonomy",
             },
         },
