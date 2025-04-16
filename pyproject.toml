@@ -25,7 +25,6 @@ dependencies = [
     "psutil>=6.1.1,<7",
     "pyfastx>=2.2.0,<3",
     "pyhmmer>=0.11.0,<0.12",
-    "pyranges>=0.1.4,<0.2",
     "pyrodigal-gv>=0.3.2,<0.4",
     "requests>=2.32.3,<3",
     "rich-click>=1.8.8,<2",

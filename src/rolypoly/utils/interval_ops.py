@@ -12,8 +12,9 @@ warnings.filterwarnings(
 from typing import List, Optional, Tuple, Union
 
 import intervaltree as itree
+from genomicranges import GenomicRanges
+from iranges import IRanges
 
-# Currently relies on pyranges, genomicranges, iranges, polars, intervaltree. and maybe more.
 # TODO: make this more robust and less dependent on external libraries.
 
 
@@ -156,11 +157,6 @@ def consolidate_hits(
 ):
     """Resolves overlaps in a tabular hit table file or polars dataframe.
     Notes: some flags are mutually exclusive, e.g. you cannot set both split and merge, or rather - if you do that, you'll get unexpected results."""
-    import pyranges as pr
-    from genomicranges import (
-        GenomicRanges,  # broken until iranges pulls https://github.com/BiocPy/IRanges/pull/44 and the stack is updated.
-    )
-    from iranges import IRanges
 
     # Read the input hit table
     hit_table = pl.read_csv(input, separator="\t") if isinstance(input, str) else input
@@ -189,13 +185,12 @@ def consolidate_hits(
     # Sort the dataframe
     work_table = sort_hit_table(work_table, query_id_col, rank_list_renamed, rank_order)
 
-    # First is the easiest implemenation, culling by one per query - doing this here as it relies on the sort. ^
+    # First is the easiest implementation, culling by one per query - doing this here as it relies on the sort.
     if one_per_query:
         work_table_culled = work_table.group_by(query_id_col).first()
         work_table_culled = work_table_culled.rename(
             {rank_list_renamed[i]: rank_list[i] for i in range(len(rank_list))}
         )
-
         return work_table_culled.select(og_cols)
 
     # cast coordinates to int64
@@ -211,7 +206,7 @@ def consolidate_hits(
     # Add unique identifier for each range
     work_table = work_table.with_row_index(name="uid")
 
-    if split == True:
+    if split:
         work_table = work_table.with_columns(
             pl.col(q1_col).alias("start"), pl.col(q2_col).alias("end")
         )
@@ -247,7 +242,8 @@ def consolidate_hits(
 
     # one-per-range
     if one_per_range:
-        print("Dropping to best hitper range")
+        print("Dropping to best hit per range")
+        # Converted to GenomicRanges
         gr_hits = GenomicRanges(
             seqnames=work_table.get_column(query_id_col),
             names=work_table.get_column("uid"),
@@ -256,24 +252,26 @@ def consolidate_hits(
                 width=work_table.get_column("width"),
             ),
         )
-        envlopping_hits_rng_idx = gr_hits.find_overlaps(
+
+        # Find overlaps
+        overlapping_hits = gr_hits.find_overlaps(
             gr_hits, min_overlap=min_overlap_positions, select="first", query_type="any"
         )
-        # get the unique values of the index
-        envoloping_hits_names = gr_hits[
-            list(set(envlopping_hits_rng_idx))
-        ].names.as_list()
+
+        # Get unique intervals
+        unique_hits = list(set(overlapping_hits))
         work_table_culled = work_table.filter(
-            pl.col("uid").cast(pl.Utf8).is_in(envoloping_hits_names)
+            pl.col("uid").cast(pl.Utf8).is_in(unique_hits)
         ).unique(subset="uid")
+
         work_table_culled = work_table_culled.rename(
             {rank_list_renamed[i]: rank_list[i] for i in range(len(rank_list))}
         )
         return work_table_culled.select(og_cols)
 
     # merge overlapping hits into one
-    if merge == True:
-        # negate the values of a rank column who's ordered for descending columns, as pyranmges sorts ascending or descending based on strand, which we do not want.
+    if merge:
+        # negate the values of a rank column who's ordered for descending columns
         for col_indx, is_descending in enumerate(rank_order):
             if is_descending:
                 work_table = work_table.with_columns(
@@ -285,46 +283,47 @@ def consolidate_hits(
         # Sort the dataframe by query, position, and rank columns
         sort_columns = [query_id_col, q1_col, q2_col] + rank_list_renamed
         sort_descending = [False, False, False] + [
-            False for i in range(len(rank_order))
+            False for _ in range(len(rank_order))
         ]
         work_table = work_table.sort(sort_columns, descending=sort_descending)
 
         work_table = work_table.select(
-            pl.col(query_id_col).cast(pl.Utf8).alias("Chromosome"),
+            pl.col(query_id_col).cast(pl.Utf8).alias("seqnames"),
             pl.col(target_id_col).cast(pl.Utf8),
-            pl.col(q1_col).cast(pl.Int64).alias("Start"),
-            pl.col(q2_col).cast(pl.Int64).alias("End"),
+            pl.col(q1_col).cast(pl.Int64).alias("start"),
+            pl.col(q2_col).cast(pl.Int64).alias("end"),
             *[pl.col(rank_col) for rank_col in rank_list_renamed],
-            # pl.lit("*").alias("Strand")
-        )  # temporary table to hold the data, at the end we will rename the columns back to the original names, and join with the original hit table to retain metadata for the hits.
-
-        # Convert hit table to PyRanges
-        pr_hits = pr.PyRanges(work_table.to_pandas())
-        pr_hits = pr_hits.sort(
-            by=["Chromosome"] + rank_list_renamed, nb_cpu=os.cpu_count() // 2
         )
-        # pr_hits.overlap(pr_hits,how= )
 
-        metaregions = pl.from_pandas(
-            pr_hits.merge(slack=-min_overlap_positions, strand=False, count=True).df
-        )  # .drop("Count")
+        # Convert to GenomicRanges for merging
+        gr_hits = GenomicRanges(
+            seqnames=work_table.get_column("seqnames"),
+            ranges=IRanges(
+                start=work_table.get_column("start"),
+                width=work_table.get_column("end") - work_table.get_column("start") + 1,
+            ),
+        )
 
+        # Merge overlapping intervals
+        merged_ranges = gr_hits.merge(min_overlap=min_overlap_positions)
+
+        # Process merged intervals
         results = []
-        for row in metaregions.iter_rows():
-            # assume the subsetted dataframe is still storted.
+        for row in merged_ranges.iter_rows():
             hits_in_cluster = work_table.filter(
-                pl.col("Chromosome") == row[0],
-                pl.col("Start") >= row[1],
-                pl.col("End") <= row[2],
+                pl.col("seqnames") == row[0],
+                pl.col("start") >= row[1],
+                pl.col("end") <= row[2],
             )
-            merged_hit = hits_in_cluster.group_by(["Chromosome"]).agg(
+            merged_hit = hits_in_cluster.group_by(["seqnames"]).agg(
                 pl.col(target_id_col).first().alias(target_id_col),
-                pl.col("Start").cast(pl.Int64).min().alias("Start"),
-                pl.col("End").cast(pl.Int64).max().alias("End"),
+                pl.col("start").cast(pl.Int64).min().alias("start"),
+                pl.col("end").cast(pl.Int64).max().alias("end"),
                 *[pl.col(rank_col).first() for rank_col in rank_list_renamed],
             )
             merged_hit = merged_hit.select(pl.col(col) for col in merged_hit.columns)
             results.append(merged_hit)
+
         resolved_hits = pl.concat(results)
         resolved_hits = convert_back_columns(
             resolved_hits,
