@@ -1,5 +1,13 @@
 # Changelog
 
+## 16.04.2025 [Unreleased]
+
+### Added
+- Added a rust module for miscellaneous utilities (under development - sequence translation, deduplication)
+
+### Fixed
+- marker-search: corrected the args and variable names (less abbreviations).
+
 ## 14.04.2025 [Unreleased]
 
 ### Changed

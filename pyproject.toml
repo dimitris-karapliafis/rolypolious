@@ -1,5 +1,10 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [project]
-name = "rolypoly_bio"
+name = "rolypoly"
+dynamic = ["version"]
 authors = [
     { name = "Uri Neri", email = "uneri@lbl.gov" },
     { name = "Simon Roux", email = "sroux@lbl.gov" },
@@ -11,9 +16,8 @@ authors = [
 ]
 description = "RNA virus analysis toolkit"
 readme = "README.md"
-dynamic = ["version"]
-license = { file = "LICENSE" }
 requires-python = ">=3.9"
+license = { file = "LICENSE" }
 dependencies = [
     "bbmapy>=0.0.46,<0.0.48",
     "genomicranges>=0.6.3,<0.7",
@@ -30,12 +34,11 @@ dependencies = [
     "rich-click>=1.8.8,<2",
     "rich>=14.0.0,<15",
     "viennarna>=2.7.0,<3",
-    "intervaltree>=3.1.0,<4"
-    
+    "intervaltree>=3.1.0,<4",
 ]
 
 [project.urls]
-Source = "https://code.jgi.doe.gov/UNeri/rolypoly"
+Source = "https://code.jgi.doe.gov/rolypoly/rolypoly"
 
 [project.scripts]
 rolypoly = "rolypoly.rolypoly:rolypoly"
@@ -44,10 +47,6 @@ rolypoly = "rolypoly.rolypoly:rolypoly"
 build = ["hatch >=1.14.0,<2", "pip >=25.0.1,<26"]
 format = ["ruff >=0.11.3,<0.12"]
 publish = ["twine >=6.1.0,<7"]
-
-[build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
 
 [tool.hatch.version]
 path = "src/rolypoly/__init__.py"
@@ -61,7 +60,7 @@ package-dir = {"rolypoly_bio" = "src/rolypoly"}
 
 [tool.pixi.workspace]
 channels = ["conda-forge", "bioconda"]
-platforms = ["linux-64"]
+platforms = ["linux-64"] 
 
 [tool.pixi.dependencies]
 aragorn = ">=1.2.41,<2"
@@ -78,34 +77,32 @@ seqkit = ">=2.10.0,<3"
 spades = ">=4.0.1,<5"
 trnascan-se = ">=2.0.12,<3"
 falco = ">=1.2.5,<2"
+pip = ">=24.0"
 
-[tool.pixi.feature.py310.dependencies]
-python = "~=3.10.0"
+[tool.pixi.feature.py39.dependencies]
+python = "~=3.9.0"
 
 [tool.pixi.pypi-dependencies]
-rolypoly_bio = { path = ".", editable = true }
+rolypoly = { path = ".", editable = true }
 
 [tool.pixi.environments]
-default = { features = ["py310"] }
-dev = { features = ["build", "format", "publish"] }
-
-[tool.pixi.tasks]
-test-import = "python -c 'import rolypoly; print(rolypoly.__version__)'"
+default = { features = ["py39"] }
+dev = { features = ["build", "format", "publish","test"] }
 
 [tool.pixi.feature.format.tasks]
 format = "ruff check --select I --fix src && ruff format src"
 
-[tool.pixi.feature.build.tasks]
-build-pypi = "hatch version minor && hatch build"
-
 [tool.pixi.feature.publish.tasks]
 publish-pypi = "twine upload dist/*"
 
+[tool.pixi.feature.build.tasks]
+build-pypi = "hatch version minor && hatch build"
 
+[tool.pixi.feature.test.tasks]
+test-import = "python -c 'import rolypoly; print(rolypoly.__version__)'"
 
 
 [tool.ruff]
-# Exclude a variety of commonly ignored directories.
 exclude = [
     ".bzr",
     ".direnv",
@@ -135,25 +132,15 @@ exclude = [
     "venv",
 ]
 
-# Same as Black.
 line-length = 88
 indent-width = 4
-
-# Assume Python 3.9 (or later? TODO: check)
 target-version = "py39"
 
 [tool.ruff.lint]
-
-ignore = ["E501", "E402", "E401","PLC0415"] # 2. Avoid enforcing line-length violations (`E501`) and not on top of file import violations (`E402`)
-
-# Allow fix for all enabled rules (when `--fix`) is provided.
+ignore = ["E501", "E402", "E401","PLC0415"]
 fixable = ["ALL"]
 unfixable = []
-
-# Allow unused variables when underscore-prefixed.
 dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
 
 [tool.ruff.format]
-
-# Like Black, automatically detect the appropriate line ending.
 line-ending = "auto"

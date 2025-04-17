@@ -14,6 +14,7 @@ from typing import List, Optional, Tuple, Union
 import intervaltree as itree
 from genomicranges import GenomicRanges
 from iranges import IRanges
+from rolypoly.utils.various import order_columns_to_match, vstack_easy, cast_cols_to_match, order_columns_to_match
 
 # TODO: make this more robust and less dependent on external libraries.
 
@@ -410,6 +411,9 @@ def clip_overlapping_ranges_pl(
     :param min_overlap: Minimum overlap to consider for clipping
     :return: A DataFrame with clipped ranges. The start and end of the ranges are updated to remove the overlap, so that the first range (i.e. index of it is lower) is the one that is the one not getting clipped, and other are trimmed to not overlap with it.
     """
+    
+    
+    
     df = get_all_overlaps_pl(input_df, min_overlap=min_overlap, id_col=id_col)  # type: ignore
     df = df.with_columns(
         pl.col("overlapping_intervals").list.len().alias("n_overlapping")
@@ -438,16 +442,9 @@ def clip_overlapping_ranges_pl(
                 tree_df = tree_df.join(
                     rest_df.drop(["start", "end"]), on=id_col, how="left"
                 )
-                tree_df = set_column_order(tree_df, df)
-                subset_df = subset_df.vstack(tree_df)
-    subset_df = set_column_order(subset_df, rest_df)
-    return subset_df.vstack(rest_df)
-
-
-def set_column_order(df: pl.DataFrame, ref_df: pl.DataFrame) -> pl.DataFrame:
-    """Set the column order of df to match ref_df."""
-    df.select([col for col in ref_df.columns if col in df.columns])
-
+                # breakpoint()
+                subset_df = vstack_easy(subset_df, tree_df)
+    return vstack_easy(subset_df, rest_df)
 
 def get_all_envelopes_pl(
     input_df: pl.DataFrame, id_col: Optional[str] = None

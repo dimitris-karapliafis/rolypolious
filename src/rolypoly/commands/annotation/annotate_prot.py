@@ -224,24 +224,11 @@ def predict_orfs_with_pyrodigal(config):
 
 def predict_orfs_with_six_frame(config):
     """Translate 6-frame reading frames of a DNA sequence using seqkit."""
-    from rolypoly.utils.various import run_command_comp
+    from rolypoly.utils.fax import translate_6frx_seqkit
 
-    run_command_comp(
-        "seqkit",
-        positional_args=[
-            "translate",
-            "-x",
-            "-F",
-            "--clean",
-            "-w",
-            "20000",
-            "-f",
-            "6",
-            str(config.input),
-        ],
-        params={"id-regexp": "'(\\*)'", "clean": True, "threads": config.threads},
-        output_file=str(config.output_dir / "predicted_orfs.faa"),
-    )
+    output_file = str(config.output_dir / "predicted_orfs.faa")
+    translate_6frx_seqkit(str(config.input), output_file, config.threads)
+    return output_file
 
 
 def search_protein_domains_hmmscan(config):
