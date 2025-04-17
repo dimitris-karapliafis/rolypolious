@@ -12,6 +12,13 @@ DATA_PATH="${3:-$HOME/rolypoly_data}"
 LOGFILE="${4:-$HOME/RolyPoly_quick_setup.log}"
 DEV_INSTALL="${5:-FALSE}"
 
+# convert to absolute paths
+CONDA_ENV_PATH=$(realpath "$CONDA_ENV_PATH")
+INSTALL_PATH=$(realpath "$INSTALL_PATH")
+DATA_PATH=$(realpath "$DATA_PATH")
+LOGFILE=$(realpath "$LOGFILE")
+
+
 # if the paths parent directories don't exist, create them
 if [ ! -d "$(dirname "$CONDA_ENV_PATH")" ]; then
     logit "$LOGFILE" "Conda environment path parent directory does not exist. Creating it now    " 
