@@ -6,9 +6,10 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::fs::File;
 use std::io::{self, BufRead, BufWriter, Write};
+use std::sync::Arc;
 
-/// Genetic code tables for different translation scenarios
-#[derive(Clone, Debug)]
+#[allow(dead_code)]
+#[derive(Debug, Clone)]
 pub enum GeneticCode {
     Standard = 1,      // Standard/Universal code
     Vertebrate = 2,    // Vertebrate mitochondrial
@@ -202,12 +203,10 @@ fn translate_six_frame_batch(seqs: Vec<String>, genetic_code_id: Option<usize>) 
 fn translate_six_frame_file(
     input_file: &str,
     output_file: &str,
-    id_regexp: Option<&str>,
+    _id_regexp: Option<&str>,
     genetic_code_id: Option<usize>,
     threads: Option<usize>
 ) -> PyResult<()> {
-    use std::sync::Arc;
-
     let genetic_code = match genetic_code_id {
         Some(11) => Arc::new(GeneticCode::Bacterial),
         Some(1) | None => Arc::new(GeneticCode::Standard),
@@ -215,7 +214,7 @@ fn translate_six_frame_file(
     };
 
     // Set up parallelism
-    let num_threads = threads.unwrap_or_else(|| rayon::current_num_threads());
+    let _num_threads = threads.unwrap_or_else(|| rayon::current_num_threads());
     
     // Open the input file
     let input_path = Path::new(input_file);

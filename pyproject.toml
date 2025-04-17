@@ -44,11 +44,12 @@ Source = "https://code.jgi.doe.gov/UNeri/rolypoly"
 rolypoly = "rolypoly.rolypoly:rolypoly"
 
 [tool.maturin]
-python-source = "src"
-module-name = "rolypoly.utils.rust_misc"
+python-source = "python"
+module-name = "rolypoly"
 manifest-path = "Cargo.toml"
 bindings = "pyo3"
 features = ["pyo3/extension-module"]
+develop = true
 
 [tool.pixi.workspace]
 channels = ["conda-forge", "bioconda"]

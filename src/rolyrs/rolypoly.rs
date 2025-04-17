@@ -9,10 +9,10 @@ mod format;
 
 // Expose the PyO3 modules
 #[pymodule]
-fn rust_misc(py: Python, m: &PyModule) -> PyResult<()> {
+#[pyo3(name = "rolypoly")]
+fn init_module(py: Python, m: &PyModule) -> PyResult<()> {
     // Create submodules
-    let sys = py.import("sys")?;
-    let modules = sys.getattr("modules")?;
+    let _sys = py.import("sys")?;
 
     let translate_module = PyModule::new(py, "translate")?;
     translate::seq_translate(py, translate_module)?;

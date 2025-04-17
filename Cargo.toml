@@ -4,9 +4,9 @@ version = "0.1.0"
 edition = "2021"
 
 [lib]
-name = "rust_misc"
+name = "rolypoly"
 crate-type = ["cdylib"]
-path = "rust/src/lib.rs"
+path = "src/rolyrs/rolypoly.rs"
 
 [dependencies]
 pyo3 = { version = "0.20.3", features = ["extension-module"] }
