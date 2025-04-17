@@ -26,7 +26,7 @@ By default if no positional arguments are supplied, rolypoly is installed into t
 
 To install rolypoly in development mode, use:
 ```bash
-bash quick_setup.sh /path/to/conda/env /path/to/install/rolypoly_code /path/to/store/databases /path/to/logfile true
+bash quick_setup.sh /path/to/conda/env /path/to/install/rolypoly_code /path/to/store/databases /path/to/logfile TRUE
 ```
 
 
