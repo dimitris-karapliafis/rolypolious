@@ -8,8 +8,6 @@ import rich_click as click
 ROLYPOLY_DATA = os.environ.get("ROLYPOLY_DATA")
 RP_TESTS_DIR = Path("/REDACTED_HPC_PATH/tests/rp_tests")
 
-print(f"ROLYPOLY_DATA: {ROLYPOLY_DATA}")
-print(f"RP_TESTS_DIR: {RP_TESTS_DIR}")
 
 ## argument lists for --input files
 global \
@@ -134,6 +132,8 @@ def test_rolypoly_command(command, args):
         command (string): one of the rolypoly commands
         args (dict): arguments to the command
     """
+    print(f"Running command: {command}")
+    print(f"Arguments: {args}")
 
     cmd = f"rolypoly {command}"
     if args:
@@ -228,7 +228,7 @@ def get_input_files(mode, command=None, small=False):
             "contigs": (f"{base_path}/contigs/*.fasta", None),
             "protein": (f"{base_path}/protein/*.fasta", None),
         },
-        "rdrp-hmmsearch": {
+        "marker-search": {
             "isolate_fungal": (f"{base_path}/isolate_fungi/example_virus.fna", None),
             "isolate_hiv": (f"{base_path}/isolate_human/hiv/hiv.fna", None),
             "isolate_lyssa": (f"{base_path}/isolate_human/lyssa/lyssa.fna", None),
@@ -263,7 +263,7 @@ def get_input_files(mode, command=None, small=False):
     return input_files, host_files
 
 
-@click.command(name="test-rolypoly")
+@click.command(name="test")
 @click.option("-c", "--command", required=True, help="RolyPoly command to test")
 @click.option(
     "-m",
@@ -289,7 +289,7 @@ def get_input_files(mode, command=None, small=False):
 @click.option("-t", "--threads", default=4, help="Number of threads to use")
 @click.option("-M", "--memory", default="6g", help="Memory to use")
 @click.option("--other-args", help="Additional arguments as JSON string")
-def test_rolypoly(command, mode, small, output_dir, threads, memory, other_args):
+def test(command, mode, small, output_dir, threads, memory, other_args):
     import datetime
     import json
 
@@ -328,6 +328,9 @@ def test_rolypoly(command, mode, small, output_dir, threads, memory, other_args)
 
 
 if __name__ == "__main__":
-    print("Starting test_rolypoly")
-    test_rolypoly()
-    print("Finished test_rolypoly")
+    print(f"ROLYPOLY_DATA: {ROLYPOLY_DATA}")
+    print(f"RP_TESTS_DIR: {RP_TESTS_DIR}")
+
+    print("Starting rolypoly test")
+    test()
+    print("Finished rolypoly test")

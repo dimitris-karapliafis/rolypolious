@@ -1,5 +1,10 @@
+[build-system]
+requires = ["maturin>=1.8.3,<2.0"]
+build-backend = "maturin"
+
 [project]
 name = "rolypoly_bio"
+dynamic = ["version"]
 authors = [
     { name = "Uri Neri", email = "uneri@lbl.gov" },
     { name = "Simon Roux", email = "sroux@lbl.gov" },
@@ -11,9 +16,8 @@ authors = [
 ]
 description = "RNA virus analysis toolkit"
 readme = "README.md"
-dynamic = ["version"]
-license = { file = "LICENSE" }
 requires-python = ">=3.9"
+license = { file = "LICENSE" }
 dependencies = [
     "bbmapy>=0.0.46,<0.0.48",
     "genomicranges>=0.6.3,<0.7",
@@ -31,7 +35,6 @@ dependencies = [
     "rich>=14.0.0,<15",
     "viennarna>=2.7.0,<3",
     "intervaltree>=3.1.0,<4"
-    
 ]
 
 [project.urls]
@@ -40,24 +43,12 @@ Source = "https://code.jgi.doe.gov/UNeri/rolypoly"
 [project.scripts]
 rolypoly = "rolypoly.rolypoly:rolypoly"
 
-[dependency-groups]
-build = ["hatch >=1.14.0,<2", "pip >=25.0.1,<26"]
-format = ["ruff >=0.11.3,<0.12"]
-publish = ["twine >=6.1.0,<7"]
-
-[build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
-
-[tool.hatch.version]
-path = "src/rolypoly/__init__.py"
-
-[tool.hatch.build]
-packages = ["src/rolypoly"]
-
-[tool.hatch.build.targets.wheel]
-packages = ["src/rolypoly"]
-package-dir = {"rolypoly_bio" = "src/rolypoly"}
+[tool.maturin]
+python-source = "src"
+module-name = "rolypoly.utils.rust_misc"
+manifest-path = "Cargo.toml"
+bindings = "pyo3"
+features = ["pyo3/extension-module"]
 
 [tool.pixi.workspace]
 channels = ["conda-forge", "bioconda"]
@@ -78,6 +69,9 @@ seqkit = ">=2.10.0,<3"
 spades = ">=4.0.1,<5"
 trnascan-se = ">=2.0.12,<3"
 falco = ">=1.2.5,<2"
+maturin = ">=1.8.3,<2"
+rust = ">=1.75.0"
+pip = ">=24.0"
 
 [tool.pixi.feature.py310.dependencies]
 python = "~=3.10.0"
@@ -87,25 +81,20 @@ rolypoly_bio = { path = ".", editable = true }
 
 [tool.pixi.environments]
 default = { features = ["py310"] }
-dev = { features = ["build", "format", "publish"] }
+dev = { features = ["format", "publish"] }
 
 [tool.pixi.tasks]
 test-import = "python -c 'import rolypoly; print(rolypoly.__version__)'"
+build = "maturin develop --release"
+build-all = "build"
 
 [tool.pixi.feature.format.tasks]
 format = "ruff check --select I --fix src && ruff format src"
 
-[tool.pixi.feature.build.tasks]
-build-pypi = "hatch version minor && hatch build"
-
 [tool.pixi.feature.publish.tasks]
 publish-pypi = "twine upload dist/*"
 
-
-
-
 [tool.ruff]
-# Exclude a variety of commonly ignored directories.
 exclude = [
     ".bzr",
     ".direnv",
@@ -135,25 +124,15 @@ exclude = [
     "venv",
 ]
 
-# Same as Black.
 line-length = 88
 indent-width = 4
-
-# Assume Python 3.9 (or later? TODO: check)
 target-version = "py39"
 
 [tool.ruff.lint]
-
-ignore = ["E501", "E402", "E401","PLC0415"] # 2. Avoid enforcing line-length violations (`E501`) and not on top of file import violations (`E402`)
-
-# Allow fix for all enabled rules (when `--fix`) is provided.
+ignore = ["E501", "E402", "E401","PLC0415"]
 fixable = ["ALL"]
 unfixable = []
-
-# Allow unused variables when underscore-prefixed.
 dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
 
 [tool.ruff.format]
-
-# Like Black, automatically detect the appropriate line ending.
 line-ending = "auto"

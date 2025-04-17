@@ -27,7 +27,7 @@ class RVirusSearchConfig(BaseConfig):
             temp_dir=kwargs.get("temp_dir"),
         )  # initialize the BaseConfig class
         # initialize the rest of the parameters (i.e. the ones that are not in the BaseConfig class)
-        self.dbs = kwargs.get("db")
+        self.database = kwargs.get("database")
         self.inc_evalue = kwargs.get("inc_evalue") or 0.05
         self.score = kwargs.get("score") or 20
         self.aa_method = kwargs.get("aa_method") or "six_frame"
@@ -99,16 +99,18 @@ console = Console(width=150)
     help="Minimal score for including a domain match in the results",
 )
 @option(
-    "--aa_method",
+    "-am",
+    "--aa-method",
     default="six_frame",
     type=Choice(["six_frame", "pyrodigal", "bbmap"]),
     help="Method to translate nucleotide sequences into amino acids. Options: six frame translation via seqkit with stops replaced by `X`, pyrodigal-gv uses pyrodigal-meta with additional genetic codes, bbmap  callgenes.sh (quick but less accurate for metagenomic data)",
 )
 @option(
-    "--db",
+    "-db",
+    "--database",
     type=str,
     default="NeoRdRp_v2.1,genomad",
-    help="""comma separated list of databases to search against (or `all`), or path to a custom db. \n
+    help="""comma separated list of databases to search against (or `all`), or path to a custom database. \n
         options: NeoRdRp_v2.1, RdRp-scan, RVMT, TSA_2018, Pfam_A_37, genomad, all, \n
         For custom path, either an .hmm file, a directory with .hmm files, or a folder with MSA files (which would be used to build an HMM DB)""",
 )
@@ -160,8 +162,9 @@ console = Console(width=150)
     help="Log level. Options: debug, info, warning, error, critical",
 )
 @option(
-    "-tmpdir",
-    "--tmp-dir",
+    "-td",
+    "-tempdir",
+    "--temp-dir",
     default="./marker_search_tmp/",
     help="Path to temporary directory",
 )
@@ -173,7 +176,7 @@ def marker_search(
     inc_evalue,
     score,
     aa_method,
-    db,
+    database,
     threads,
     log_file,
     help_proper,
@@ -252,7 +255,7 @@ def marker_search(
             score=score,
             aa_method=aa_method,
             temp_dir=temp_dir,
-            db=db,
+            database=database,
             overwrite=overwrite,
             log_level=log_level,
             threads=threads,
@@ -273,7 +276,7 @@ def marker_search(
     hmmdbdir = Path(os.environ["ROLYPOLY_DATA"]) / "hmmdbs"
 
     DB_PATHS = {
-        "NeoRdRp2.1".lower(): hmmdbdir / "neordrp/zenodo/NeoRdRp.2.1.hmm",
+        "NeoRdRp_v2.1".lower(): hmmdbdir / "neordrp/zenodo/NeoRdRp.2.1.hmm",
         "RdRp-scan".lower(): hmmdbdir / "RdRp-scan.hmm",
         "RVMT".lower(): hmmdbdir / "RVMT.hmm",
         "TSA_2018".lower(): hmmdbdir / "TSA_Olendraite.hmm",
@@ -281,56 +284,56 @@ def marker_search(
         "genomad".lower(): hmmdbdir / "genomad.hmm",
     }
 
-    if db == "all":
-        db_paths = DB_PATHS
-    elif db.startswith("/") or db.startswith("./"):
-        custom_db = str(Path(db).resolve())
-        if not Path(custom_db).exists():
-            config.logger.error(f"Custom database path {custom_db} does not exist")
+    if database == "all":
+        database_paths = DB_PATHS
+    elif database.startswith("/") or database.startswith("./"):
+        custom_database = str(Path(database).resolve())
+        if not Path(custom_database).exists():
+            config.logger.error(f"Custom database path {custom_database} does not exist")
             return
         else:
             # check if a file it's an hmm or an msa file
-            if custom_db.endswith(".hmm"):
-                db_paths = {"Custom": custom_db}
-            elif custom_db.endswith((".faa", ".fasta", ".afa")):
+            if custom_database.endswith(".hmm"):
+                database_paths = {"Custom": custom_database}
+            elif custom_database.endswith((".faa", ".fasta", ".afa")):
                 from rolypoly.utils.fax import hmm_from_msa
 
-                db_paths = {
+                database_paths = {
                     "Custom": hmm_from_msa(
-                        msa_file=db,
-                        output=db.replace(".faa", ".hmm"),
-                        name=Path(db).stem,
+                        msa_file=database,
+                        output=database.replace(".faa", ".hmm"),
+                        name=Path(database).stem,
                     )
                 }
             # if it's a directory:
-            elif Path(custom_db).is_dir():
+            elif Path(custom_database).is_dir():
                 # cehck if all files are hmm
-                if all(f.endswith((".hmm")) for f in Path(custom_db).glob("*")):
+                if all(f.endswith((".hmm")) for f in Path(custom_database).glob("*")):
                     # concatenate all hmms into one file
-                    hmm_files = Path(custom_db).glob("*.hmm")
-                    with open(Path(custom_db) / "concatenated.hmm", "w") as f:
+                    hmm_files = Path(custom_database).glob("*.hmm")
+                    with open(Path(custom_database) / "concatenated.hmm", "w") as f:
                         for hmm_file in hmm_files:
                             with open(hmm_file, "r") as hmm_file_obj:
                                 f.write(hmm_file_obj.read())
-                    db_paths = {"Custom": str(Path(custom_db) / "concatenated.hmm")}
+                    database_paths = {"Custom": str(Path(custom_database) / "concatenated.hmm")}
                 elif all(
                     f.endswith((".faa", ".fasta", ".afa"))
-                    for f in Path(custom_db).glob("*")
+                    for f in Path(custom_database).glob("*")
                 ):
                     from rolypoly.utils.fax import hmmdb_from_directory
 
                     hmmdb_from_directory(
-                        msa_dir=custom_db,
-                        output=Path(custom_db) / "all_msa_built.hmm",
+                        msa_dir=custom_database,
+                        output=Path(custom_database) / "all_msa_built.hmm",
                         alphabet="aa",
                     )
-                    db_paths = {"Custom": str(Path(custom_db) / "all_msa_built.hmm")}
+                    database_paths = {"Custom": str(Path(custom_database) / "all_msa_built.hmm")}
             else:
-                config.logger.error(f"Invalid custom database path: {custom_db}")
+                config.logger.error(f"Invalid custom database path: {custom_database}")
                 return
     else:
-        dbs = db.split(",")
-        db_paths = {db: DB_PATHS[db.lower()] for db in dbs}
+        databases = database.split(",")
+        database_paths = {db: DB_PATHS[db.lower()] for db in databases}
 
     input_alpha = guess_fasta_alpha(input)
 
@@ -363,12 +366,12 @@ def marker_search(
 
     all_outputs = []
     config.logger.info(f"Searching with {amino_file}")
-    for db_name, db_path in db_paths.items():
+    for db_name, db_path in database_paths.items():
         # Search translated sequences against viral marker databases
         config.logger.info(f"Searching {db_name}")
         tools.append(f"{db_name}")
         tmp_output = config.temp_dir / f"raw_{config.name}_vs_{db_name}.tsv"
-        output_db = search_hmmdb(
+        output_database = search_hmmdb(
             amino_file=amino_file,
             db_path=db_path,
             output=tmp_output,
@@ -400,7 +403,7 @@ def marker_search(
         testdf = consolidate_hits(
             input=stack_df,
             one_per_query=False,
-            one_per_range=False,
+            one_per_range=True,
             min_overlap_positions=config.min_overlap_positions,
             merge=False,
             split=False,

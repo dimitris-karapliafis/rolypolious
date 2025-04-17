@@ -416,10 +416,9 @@ def pyro_predict_orfs(
 
     sequences = []
     ids = []
-    with open(input_file, "r") as f:
-        for record in parse_fastx_file(f, "fasta"):
-            sequences.append(bytes(record.seq))
-            ids.append((record.id))
+    for record in parse_fastx_file(input_file):
+        sequences.append((record.seq))
+        ids.append((record.id))
 
     if gv_or_else == "gv":
         gene_finder = pyro_gv.ViralGeneFinder(
