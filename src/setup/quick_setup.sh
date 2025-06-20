@@ -125,9 +125,16 @@ logit "$LOGFILE" "1. Activate the environment:"
 logit "$LOGFILE" "  mamba activate $CONDA_ENV_PATH"
 logit "$LOGFILE" "2. Run RolyPoly:"
 logit "$LOGFILE" "  rolypoly --help"
+logit "$LOGFILE" "  rolypoly --version"
 
 micromamba activate "$CONDA_ENV_PATH"
-# logit "$LOGFILE" "RolyPoly version:"
-rolypoly --version >> "$LOGFILE"
-rolypoly --version
 
+if [ "$DEV_INSTALL" != "TRUE" ]; then
+    # check version via pip/conda
+    pip show rolypoly-bio >> "$LOGFILE"
+    pip show rolypoly-bio
+
+else
+    rolypoly --version >> "$LOGFILE"
+    rolypoly --version
+fi
