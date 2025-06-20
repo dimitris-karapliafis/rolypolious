@@ -339,7 +339,10 @@ def move_contents_to_parent(folder, overwrite=True):
         d = os.path.join(parent_dir, item)
         if overwrite:
             if os.path.exists(d):
-                os.remove(d)
+                if os.path.isfile(d):
+                    os.remove(d)
+                elif os.path.isdir(d):
+                    shutil.rmtree(d)
             shutil.move(s, d)
         else:
             if not os.path.exists(d):

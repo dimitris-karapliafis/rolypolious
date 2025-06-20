@@ -222,3 +222,7 @@ public/
 
 #silly
 *_logfile.txt
+
+# pixi 
+pixi.lock
+.pixi
