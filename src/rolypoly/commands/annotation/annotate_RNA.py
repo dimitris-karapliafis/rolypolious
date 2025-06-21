@@ -711,12 +711,15 @@ def search_rna_elements(config):
     if config.motif_db == "RolyPoly":
         motifs_dir = datadir / "RNA_motifs" / "rolypoly"
         if not motifs_dir.exists():
-            config.logger.warning(f"RolyPoly RNA motifs directory {motifs_dir} does not exist. Skipping RNA motif search.")
+            config.logger.warning(f"RolyPoly RNA motifs search is still in development. You can {motifs_dir} with your own motifs, but no guarantees that it will work.")
+            config.logger.warning("Skipping RNA motif search.")
+            # config.logger.warning(f"RolyPoly RNA motifs directory {motifs_dir} does not exist. Skipping RNA motif search.")
             return False
     elif config.motif_db == "jaspar_core":
         motifs_dir = datadir / "RNA_motifs" / "jaspar_core"
         if not motifs_dir.exists():
-            config.logger.warning(f"JASPAR core RNA motifs directory {motifs_dir} does not exist. Skipping RNA motif search.")
+            config.logger.warning(f"RolyPoly RNA motifs search is still in development. You can {motifs_dir} with your own motifs, but no guarantees that it will work.")
+            # config.logger.warning(f"JASPAR core RNA motifs directory {motifs_dir} does not exist. Skipping RNA motif search.")
             return False
     else:
         motifs_dir = Path(config.motif_db)
@@ -970,19 +973,62 @@ def process_trnas_data_tRNAscan_SE(trnas_file):
     import polars as pl
 
     if trnas_file.is_file() and os.path.getsize(trnas_file) > 0:
-        return pl.read_csv(trnas_file, separator="\t", has_header=False).select(
-            [
-                pl.col("column_1").alias("sequence_id"),
-                pl.lit("tRNA").alias("type"),
-                pl.col("column_2").cast(pl.Int64).alias("start"),
-                pl.col("column_3").cast(pl.Int64).alias("end"),
-                pl.col("column_5").alias("score"),
-                pl.lit("tRNAscan-SE").alias("source"),
-                pl.lit("+").alias("strand"),
-                pl.lit(".").alias("phase"),
-                pl.col("column_4").alias("tRNA_type"),
-            ]
-        )
+        # tRNAscan-SE output has a 3-line header that needs to be skipped
+        # Line 1: Column headers (Sequence, tRNA, Bounds, etc.)
+        # Line 2: More specific headers (Name, tRNA #, Begin, End, etc.)
+        # Line 3: Dashes separator (---------, ------, etc.)
+        # Then actual data starts
+        
+        try:
+            # Read the file and skip header lines
+            with open(trnas_file, 'r') as f:
+                lines = f.readlines()
+            
+            # Find where actual data starts (after the dashes line)
+            data_start = 0
+            for i, line in enumerate(lines):
+                if line.strip().startswith('--------'):
+                    data_start = i + 1
+                    break
+            
+            if data_start == 0 or data_start >= len(lines):
+                # No data found
+                return pl.DataFrame()
+            
+            # Extract data lines
+            data_lines = lines[data_start:]
+            data_lines = [line.strip() for line in data_lines if line.strip()]
+            
+            if not data_lines:
+                return pl.DataFrame()
+            
+            # Parse the data manually since the format is space-separated with variable spacing
+            records = []
+            for line in data_lines:
+                parts = line.split()
+                if len(parts) >= 9:  # Ensure we have enough columns
+                    record = {
+                        "sequence_id": parts[0],  # Sequence name
+                        "type": "tRNA",
+                        "start": int(parts[2]),   # Begin position
+                        "end": int(parts[3]),     # End position  
+                        "score": float(parts[8]), # Infernal score
+                        "source": "tRNAscan-SE",
+                        "strand": "+",
+                        "phase": ".",
+                        "tRNA_type": parts[4],    # tRNA type (Gln, Leu, etc.)
+                        "anticodon": parts[5],    # Anticodon
+                    }
+                    records.append(record)
+            
+            if records:
+                return pl.DataFrame(records)
+                
+        except Exception as e:
+            # If parsing fails, return empty DataFrame
+            print(f"Warning: Failed to parse tRNAscan-SE output: {e}")
+            return pl.DataFrame()
+            
     return pl.DataFrame()
 
 
