@@ -183,14 +183,19 @@ export ROLYPOLY_DATA="$DATA_PATH"
 rolypoly prepare-data --ROLYPOLY_DATA "$DATA_PATH" --log-file "$LOGFILE"
 
 # Set environment variables
-"$mamba_command" env config vars set ROLYPOLY_DATA="$DATA_PATH" -p "$MAMBA_ENV_PATH"
-"$mamba_command" env config vars set TAXONKIT_DB="$DATA_PATH/taxdump" -p "$MAMBA_ENV_PATH"
+"$mamba_command" env config vars set -p "$MAMBA_ENV_PATH" ROLYPOLY_DATA="$DATA_PATH"
+"$mamba_command" env config vars set -p "$MAMBA_ENV_PATH" TAXONKIT_DB="$DATA_PATH/taxdump"
 
 # Final setup and version check
 "$mamba_command" activate "$MAMBA_ENV_PATH"
 
 if [ "$DEV_INSTALL" != "TRUE" ]; then
-    uv pip show rolypoly-bio | grep Version -m1 -B1 | tee -a "$LOGFILE"
+    # Try uv first, fall back to pip if not available
+    if command -v uv &> /dev/null; then
+        uv pip show rolypoly-bio | grep Version -m1 -B1 | tee -a "$LOGFILE"
+    else
+        pip show rolypoly-bio | grep Version -m1 -B1 | tee -a "$LOGFILE"
+    fi
 else
     rolypoly --version | tee -a "$LOGFILE"
 fi
