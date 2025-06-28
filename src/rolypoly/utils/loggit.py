@@ -5,7 +5,7 @@ from typing import Dict, Union
 from rich.console import Console
 from rich.logging import RichHandler
 
-def get_version_info() -> dict:
+def get_version_info() -> dict[str, str]:
     """Get the current version of RolyPoly (code and data). 
     Returns a dictionary with the following keys:
     - "code": git hash (if available) or semver if installed via pip/uv.
@@ -38,7 +38,8 @@ def get_version_info() -> dict:
 
     # get data version
     version_info["data"] = "Unknown"
-    config_path = Path(resources.files("rolypoly")) / "rpconfig.json"
+    config_path = str(resources.files("rolypoly") / "rpconfig.json")
+    config_path = Path(config_path)
     if config_path.exists():
         with config_path.open("r") as f:
             config = json.load(f)
@@ -64,8 +65,8 @@ def get_data_info(config_path = None):
     
 
 def setup_logging(
-    log_file: Union[str, Path, logging.Logger],
-    log_level: int = logging.INFO,
+    log_file: Union[str, Path, logging.Logger, None],
+    log_level: Union[int, str] = logging.INFO,
     logger_name: str = "RolyPoly",
 ) -> logging.Logger:
     """Setup logging configuration for RolyPoly with both file and console logging using rich formatting."""

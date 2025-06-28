@@ -2,6 +2,7 @@ import os
 from pathlib import Path as pt
 
 from rich.console import Console
+import logging
 from rich_click import command, option
 
 from rolypoly.utils.various import (
@@ -78,10 +79,10 @@ def build_data(data_dir, threads, log_file):
             ) as msa_file:
                 msa = msa_file.read()
                 ali_name = "RdRp-scan_" + alignm_file.replace(".fasta.CLUSTALO", "")
-                msa.name = bytes(ali_name.encode())
+                msa.name = bytes(ali_name.encode()) # type: ignore
                 builder = pyhmmer.plan7.Builder(alphabet)
                 background = pyhmmer.plan7.Background(alphabet)
-                hmm, _, _ = builder.build_msa(msa, background)
+                hmm, _, _ = builder.build_msa(msa, background) # type: ignore
                 with open(
                     hmmdb_dir + f"/RdRp-scan_HMMs/{ali_name}.hmm", "wb"
                 ) as output_file:
@@ -111,10 +112,10 @@ def build_data(data_dir, threads, log_file):
                     ) as msa_file:
                         msa = msa_file.read()
                         ali_name = "RVMT_" + ali_name.replace("FASTA", "")
-                        msa.name = bytes(ali_name.encode())
+                        msa.name = bytes(ali_name.encode()) # type: ignore
                         builder = pyhmmer.plan7.Builder(alphabet)
                         background = pyhmmer.plan7.Background(alphabet)
-                        hmm, _, _ = builder.build_msa(msa, background)
+                        hmm, _, _ = builder.build_msa(msa, background) # type: ignore
                         with open(f"../RVMT_HMMs/{ali_name}.hmm", "wb") as output_file:
                             hmm.write(output_file)
     os.chdir(os.path.join(hmmdb_dir, "RVMT_HMMs"))
@@ -389,7 +390,7 @@ def tar_everything_and_upload_to_NERSC(data_dir, version=""):
         tools.append("tsa_2018")
         tools.append("pfam_a_37")
         tools.append("refseq")
-        f_out.write(remind_citations(tools, return_as_text=True))
+        f_out.write(remind_citations(tools, return_as_text=True) or "")
 
     tar_command = f"tar --use-compress-program='pigz -p 8 --best' -cf rpdb.tar.gz {data_dir}"  # threads
 
@@ -403,7 +404,7 @@ def tar_everything_and_upload_to_NERSC(data_dir, version=""):
     # subprocess.run(upload_command, shell=True)
 
 
-def prepare_genomad_rna_viral_hmms(data_dir, threads, logger=None):
+def prepare_genomad_rna_viral_hmms(data_dir, threads, logger: logging.Logger):
     """Download and prepare RNA viral HMMs from geNomad markers.
 
     Downloads the geNomad database, analyzes the marker metadata to identify

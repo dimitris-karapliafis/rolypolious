@@ -150,7 +150,7 @@ def convert_bytes_to_units(byte_size: int) -> Dict[str, str]:
     }
 
 
-def ensure_memory(memory: str, file_path: Optional[str] = None) -> Dict[str, str]:
+def ensure_memory(memory: Union[str, int, dict], file_path: Optional[str] = None) -> Dict[str, str]:
     """Check if requested memory is available and appropriate"""
     import psutil
 

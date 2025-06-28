@@ -1,4 +1,7 @@
 from pathlib import Path
+import hashlib
+import json
+from collections import Counter
 
 import polars as pl
 import rich_click as click
@@ -6,9 +9,6 @@ from rich.console import Console
 
 from rolypoly.utils.citation_reminder import remind_citations
 from rolypoly.utils.fax import (
-    #     RNAStructureExpr,
-    #     SequenceExpr,
-    is_nucl_string,
     read_fasta_df,
 )
 
@@ -20,7 +20,13 @@ console = Console()
 
 
 @click.command()
-@click.option("-i", "--input", required=True, help="Input file or directory")
+@click.option(
+    "-i",
+    "--input",
+    required=True,
+    type=click.Path(exists=True),
+    help="Input file (fasta, fa, fna, faa)",
+)
 @click.option(
     "-agg",
     "--aggregate",
@@ -28,11 +34,26 @@ console = Console()
     type=bool,
     help="aggregate statistics across all sequences",
 )
-@click.option("-o", "--output", default="rp_sequence_stats.txt", help="Output path")
-@click.option("-t", "--threads", hidden=True, default=1, help="Number of threads")
-@click.option("-M", "--memory", hidden=True, default="6g", help="Memory allocation")
-@click.option("--log-file", default="command.log", help="Path to log file")
-@click.option("--log-level", hidden=True, default="INFO", help="Log level")
+@click.option(
+    "-o",
+    "--output",
+    default="rp_sequence_stats.txt",
+    type=click.Path(exists=False),
+    help="Output path",
+)
+@click.option(
+    "--log-file",
+    default="command.log",
+    type=click.Path(exists=False),
+    help="Path to log file",
+    hidden=True,
+)
+@click.option(
+    "--log-level",
+    hidden=True,
+    default="INFO",
+    help="Log level",
+)
 @click.option(
     "--min_length",
     hidden=True,
@@ -50,20 +71,15 @@ console = Console()
 @click.option(
     "--format",
     default="tsv",
-    type=click.Choice(case_sensitive=False, choices=["text", "json", "tsv"]),
-    help="output format",
-)
-@click.option(
-    "-rt",
-    "--rna_tool",
-    default="ViennaRNA",
-    type=click.Choice(case_sensitive=False, choices=["ViennaRNA", "LinearFold"]),
-    help="RNA secondary structure prediction tool",
+    type=click.Choice(case_sensitive=False, choices=["csv", "tsv", "md", "parquet"]),
+    help="output format, either a parquet/csv/tsv file with the data or a markdown file with summary statistics",
 )
 @click.option(
     "-f",
     "--fields",
-    default="length,gc_content,n_count,hash,structure,mfe,mfe_per_nt,codon_usage,kmer_freq",
+    type=click.Choice(case_sensitive=False, choices=["length", "gc_content", "n_count", "hash", "kmer_freq"]),
+    multiple=True,
+    default=["length", "gc_content", "n_count", "hash"],
     help="""
               comma-separated list of fields to include.  
               Available:
@@ -71,33 +87,21 @@ console = Console()
               gc_content - percentage of GC nucleotides
               n_count - total number of Ns 
               hash - md5 hash of the sequence
-              structure - Dot bracket notation of the RNA secondary structure (requires rna_tool)
-              mfe - minimum free energy of the RNA secondary structure (requires rna_tool)
-              mfe_per_nt - minimum free energy of the RNA secondary structure per nucleotide (requires rna_tool)
-              codon_usage - codon usage frequencies (only works if length % 3 == 0 cause I'm lazy)
               kmer_freq - k-mer frequencies (k=3 by default)
-              
               """,
 )
 def sequence_stats(
     input,
     aggregate,
     output,
-    threads,
-    memory,
     log_file,
     log_level,
     min_length,
     max_length,
     format,
-    rna_tool,
     fields,
 ):
     """Calculate sequence statistics using Polars expressions"""
-    import json
-
-    import polars as pl
-
     from rolypoly.utils.loggit import log_start_info, setup_logging
 
     logger = setup_logging(log_file, log_level)
@@ -108,14 +112,20 @@ def sequence_stats(
     # Read sequences into DataFrame
     df = read_fasta_df(input)
     total_seqs = len(df)
+    df = df.with_columns(pl.col("sequence").str.len_chars().alias("length"))
+    
+    logger.info(f"Read {total_seqs} sequences from {input}")
 
     # Apply length filters
     if min_length:
-        df = df.filter(pl.col("sequence").seq.length() >= min_length)
+        df = df.filter(pl.col("length") >= min_length)
+        logger.info(f"Applied minimum length filter: {min_length}")
     if max_length:
-        df = df.filter(pl.col("sequence").seq.length() <= max_length)
+        df = df.filter(pl.col("length") <= max_length)
+        logger.info(f"Applied maximum length filter: {max_length}")
 
     filtered_seqs = len(df)
+    logger.info(f"After filtering: {filtered_seqs} sequences")
 
     # Define available fields and their dependencies
     field_options = {
@@ -123,305 +133,164 @@ def sequence_stats(
         "gc_content": {"desc": "GC content percentage"},
         "n_count": {"desc": "Count of Ns in sequence"},
         "hash": {"desc": "Sequence hash (MD5)"},
-        "structure": {"desc": "RNA secondary structure", "needs_tool": True},
-        "mfe": {"desc": "Minimum free energy", "needs_structure": True},
-        "mfe_per_nt": {
-            "desc": "Minimum free energy per nucleotide",
-            "needs_structure": True,
-        },
-        "codon_usage": {"desc": "Codon usage frequencies", "complex": True},
         "kmer_freq": {"desc": "K-mer frequencies", "complex": True},
     }
 
-    # Parse fields
-    selected_fields = []
-    if fields:
-        selected_fields = [f.strip().lower() for f in fields.split(",")]
-        # Validate fields
-        valid_fields = list(field_options.keys())
-        invalid_fields = [f for f in selected_fields if f not in valid_fields]
-        if invalid_fields:
-            logger.warning(f"Unknown field(s): {', '.join(invalid_fields)}")
-            logger.warning(f"Available fields are: {', '.join(valid_fields)}")
-        selected_fields = [f for f in selected_fields if f in valid_fields]
-
+    # Parse fields - fields is already a tuple from multiple=True
+    selected_fields = list(fields) if fields else ["length", "gc_content", "n_count", "hash"]
+    
     # Always include length for summaries
     if "length" not in selected_fields:
         selected_fields.append("length")
 
-    # Define which stats to include based on selected fields
-    include_length = "length" in selected_fields
-    include_gc = "gc_content" in selected_fields
-    include_n = "n_count" in selected_fields
-    include_hash = "hash" in selected_fields
-    include_structure = any(
-        f in selected_fields for f in ["structure", "mfe", "mfe_per_nt"]
-    )
-    include_codon = "codon_usage" in selected_fields
-    include_kmer = "kmer_freq" in selected_fields
-    # Build the stats expressions
-    stats_expr = []
+    logger.info(f"Selected fields: {', '.join(selected_fields)}")
 
-    # Always include basic length stats for filtering/summaries
-    stats_expr.append(pl.col("sequence").seq.length().alias("length"))
+    # Helper function for kmer calculation
+    def calculate_kmers(sequence, k=3):
+        """Calculate k-mer frequencies for a sequence"""
+        if len(sequence) < k:
+            return {}
+        kmers = [sequence[i:i+k] for i in range(len(sequence) - k + 1)]
+        return dict(Counter(kmers))
 
-    if include_gc:
-        stats_expr.append(pl.col("sequence").seq.gc_content().alias("gc_content"))
+    # Helper function for MD5 hash
+    def calculate_hash(sequence):
+        """Calculate MD5 hash of sequence"""
+        return hashlib.md5(sequence.encode()).hexdigest()
 
-    if include_n:
-        stats_expr.append(pl.col("sequence").seq.n_count().alias("n_count"))
-
-    if include_hash:
-        stats_expr.append(pl.col("sequence").seq.generate_hash().alias("hash"))
-
-    if include_kmer:
-        stats_expr.append(
-            pl.col("sequence")
-            .seq.calculate_kmer_frequencies(k=3)
-            .alias("kmer_frequencies")
-        )
-
-    # Add structure prediction if requested
-    if include_structure:
-        if rna_tool.lower() == "linearfold":
-            stats_expr.append(
-                pl.col("sequence")
-                .rna.predict_structure_with_tool("LinearFold")
-                .alias("rna_struct")
-            )
-        else:
-            stats_expr.append(
-                pl.col("sequence")
-                .rna.predict_structure_with_tool("ViennaRNA")
-                .alias("rna_struct")
-            )
-
-    # Apply all the stats expressions
-    df = df.with_columns(stats_expr)
-
-    # Extract structure fields if needed
-    if include_structure:
+    # Calculate selected statistics
+    if "gc_content" in selected_fields:
         df = df.with_columns(
-            [
-                pl.col("rna_struct").struct.field("structure").alias("structure"),
-                pl.col("rna_struct").struct.field("mfe").alias("mfe"),
-                (pl.col("rna_struct").struct.field("mfe") / pl.col("length")).alias(
-                    "mfe_per_nt"
-                ),
-            ]
-        ).drop("rna_struct")
-
-    # Process codon usage separately since it's more complex
-    if include_codon:
-        codon_df = df.filter(pl.col("sequence").seq.is_valid_codon()).with_columns(
-            [pl.col("sequence").seq.codon_usage().alias("codons")]
+            (pl.col("sequence").str.count_matches(r"[GCgc]") / pl.col("length") * 100.0)
+            .alias("gc_content")
+        )
+    
+    if "n_count" in selected_fields:
+        df = df.with_columns(
+            pl.col("sequence").str.count_matches(r"[Nn]").alias("n_count")
+        )
+    
+    if "hash" in selected_fields:
+        df = df.with_columns(
+            pl.col("sequence").map_elements(calculate_hash, return_dtype=pl.String).alias("hash")
         )
 
-        if len(codon_df) > 0:
-            # Unnest the codon usage struct and join back
-            codon_data = codon_df.select([pl.col("header"), pl.col("codons")]).unnest(
-                "codons"
-            )
-
-            df = df.join(
-                codon_data.select(pl.exclude("sequence")), on="header", how="left"
-            )
-
-    if include_kmer:
-        try:
-            # Don't try to unnest kmer frequencies in the main display_df selection
-            # Instead, handle it separately similar to codon_usage
-            kmer_df = df.select([pl.col("header"), pl.col("kmer_frequencies")])
-
-            # For CSV/TSV output, we need to convert the struct to strings
-            if format.lower() in ["tsv", "text"]:
-                kmer_df = kmer_df.with_columns(
-                    [pl.col("kmer_frequencies").cast(pl.Utf8).alias("kmer_freq_str")]
-                )
-                df = df.join(
-                    kmer_df.select(["header", "kmer_freq_str"]), on="header", how="left"
-                )
-            else:
-                # For JSON output, we can keep the struct
-                kmer_df = kmer_df.unnest("kmer_frequencies")
-                df = df.join(
-                    kmer_df.select(pl.exclude("sequence")), on="header", how="left"
-                )
-        except Exception as e:
-            logger.warning(f"Error processing k-mer frequencies: {str(e)}")
-            logger.warning("Skipping k-mer frequencies output")
-
-    if len(df) > 0:
-        # Prepare display columns for per-contig stats
-        display_columns = ["header"]
-
-        # Add requested columns if they're in the dataframe
-        for field in selected_fields:
-            if field != "codon_usage" and field != "kmer_freq" and field in df.columns:
-                display_columns.append(field)
-
-        # Add codon columns if requested
-        if include_codon:
-            codon_cols = [
-                col
-                for col in df.columns
-                if col
-                not in [
-                    "header",
-                    "sequence",
-                    "length",
-                    "gc_content",
-                    "n_count",
-                    "hash",
-                    "mfe",
-                    "mfe_per_nt",
-                    "structure",
-                ]
-            ]
-            display_columns.extend(codon_cols)
-
-        # Add kmer columns if requested
-        if include_kmer:
-            kmer_cols = [
-                col
-                for col in df.columns
-                if col.startswith("kmer_") and col != "kmer_frequencies"
-            ]
-            display_columns.extend(kmer_cols)
-
-        # Make sure we don't have duplicate columns
-        display_columns = list(dict.fromkeys(display_columns))
-        display_df = df.select(display_columns)
-
-        # Check for nested columns that could cause CSV write problems
-        has_nested_cols = any(
-            isinstance(dtype, pl.Struct) or isinstance(dtype, pl.List)
-            for dtype in display_df.dtypes
+    if "kmer_freq" in selected_fields:
+        df = df.with_columns(
+            pl.col("sequence").map_elements(
+                lambda x: json.dumps(calculate_kmers(x, k=3)), 
+                return_dtype=pl.String
+            ).alias("kmer_frequencies")
         )
 
-        if has_nested_cols and format.lower() in ["tsv", "text"]:
-            # Find nested columns
-            nested_cols = [
-                col
-                for col, dtype in zip(display_df.columns, display_df.dtypes)
-                if isinstance(dtype, pl.Struct) or isinstance(dtype, pl.List)
-            ]
+    # Select only the fields we want to output
+    output_columns = ["header"] + selected_fields
+    if "kmer_freq" in selected_fields:
+        # Replace kmer_freq with kmer_frequencies in output columns
+        output_columns = [col if col != "kmer_freq" else "kmer_frequencies" for col in output_columns]
+    
+    df_output = df.select([col for col in output_columns if col in df.columns])
 
-            logger.warning(
-                f"Found nested columns which can't be directly written to CSV/TSV: {nested_cols}"
-            )
-
-            # Convert nested columns to string representation
-            for col in nested_cols:
-                display_df = display_df.with_columns(
-                    [pl.col(col).cast(pl.Utf8).alias(col)]
-                )
-
-            logger.info(
-                "Converted nested columns to string representation for CSV/TSV output"
-            )
-
-        # Calculate summary statistics if aggregation is requested
-        if aggregate:
-            summary_exprs = [
-                pl.lit(total_seqs).alias("total_sequences"),
-                pl.lit(filtered_seqs).alias("filtered_sequences"),
+    if aggregate:
+        # Create aggregated statistics
+        agg_stats = {}
+        
+        if "length" in selected_fields:
+            length_stats = df.select([
                 pl.col("length").min().alias("min_length"),
                 pl.col("length").max().alias("max_length"),
                 pl.col("length").mean().alias("mean_length"),
                 pl.col("length").median().alias("median_length"),
-            ]
+                pl.col("length").std().alias("std_length"),
+                pl.col("length").sum().alias("total_length")
+            ]).to_dicts()[0]
+            agg_stats.update(length_stats)
+        
+        if "gc_content" in selected_fields:
+            gc_stats = df.select([
+                pl.col("gc_content").min().alias("min_gc"),
+                pl.col("gc_content").max().alias("max_gc"),
+                pl.col("gc_content").mean().alias("mean_gc"),
+                pl.col("gc_content").median().alias("median_gc"),
+                pl.col("gc_content").std().alias("std_gc")
+            ]).to_dicts()[0]
+            agg_stats.update(gc_stats)
+        
+        if "n_count" in selected_fields:
+            n_stats = df.select([
+                pl.col("n_count").min().alias("min_n_count"),
+                pl.col("n_count").max().alias("max_n_count"),
+                pl.col("n_count").mean().alias("mean_n_count"),
+                pl.col("n_count").sum().alias("total_n_count")
+            ]).to_dicts()[0]
+            agg_stats.update(n_stats)
+        
+        agg_stats["total_sequences"] = filtered_seqs
+        agg_stats["sequences_before_filter"] = total_seqs
+        
+        # Convert to DataFrame for consistent output
+        df_output = pl.DataFrame([agg_stats])
 
-            if include_gc:
-                summary_exprs.extend(
-                    [
-                        pl.col("gc_content").mean().alias("mean_gc"),
-                        pl.col("gc_content").median().alias("median_gc"),
-                    ]
-                )
-
-            if include_structure and "mfe_per_nt" in df.columns:
-                summary_exprs.extend(
-                    [
-                        pl.col("mfe_per_nt").mean().alias("mean_mfe_per_nt"),
-                        pl.col("mfe_per_nt").median().alias("median_mfe_per_nt"),
-                    ]
-                )
-
-            summary_stats = df.select(summary_exprs)
-
-        # Output results
-        if format.lower() == "json":
-            output_data = {"sequences": display_df.to_dict(as_series=False)}
-            if aggregate:
-                output_data["summary"] = summary_stats.to_dict(as_series=False)
-
-            with open(output_path, "w") as f:
-                json.dump(output_data, f, indent=2)
-
-        elif format.lower() == "tsv":
-            try:
-                display_df.write_csv(output_path, separator="\t")
-                if aggregate:
-                    summary_output = output_path.with_suffix(".summary.tsv")
-                    summary_stats.write_csv(summary_output, separator="\t")
-                    logger.info(f"Summary statistics written to {summary_output}")
-            except Exception as e:
-                logger.error(f"Error writing TSV file: {str(e)}")
-                logger.info("Trying to convert problematic data types to strings...")
-
-                # Convert all columns to strings as a last resort
-                for col in display_df.columns:
-                    if col != "header":  # Keep header as is
-                        try:
-                            display_df = display_df.with_columns(
-                                [pl.col(col).cast(pl.Utf8).alias(f"{col}")]
-                            )
-                        except:
-                            logger.warning(
-                                f"Couldn't convert column {col} to string, dropping it"
-                            )
-                            display_df = display_df.drop(col)
-
-                # Try writing again
-                display_df.write_csv(output_path, separator="\t")
-                logger.info("Successfully wrote file after converting data types")
-
-        else:  # text format
-            if aggregate:
-                console.print("\nSequence Summary Statistics:")
-                console.print(summary_stats)
-
-            console.print("\nIndividual Sequence Statistics:")
-            if len(df) > 20 and not aggregate:
-                console.print(display_df.head(20))
-                console.print(
-                    f"\n[italic]Showing first 20 of {len(df)} sequences. Use -agg flag for summary statistics or export to file for full data.[/italic]"
-                )
-            else:
-                console.print(display_df)
-
-            with open(output_path, "w") as f:
-                if aggregate:
-                    f.write("Sequence Summary Statistics:\n")
-                    summary_stats.write_csv(f, separator="\t")
-                    f.write("\n\n")
-                f.write("Individual Sequence Statistics:\n")
-                display_df.write_csv(f, separator="\t")
-
-    else:
-        logger.warning("No sequences found matching the specified criteria")
-
-    logger.info("sequence-stats completed successfully!")
-    logger.info(f"Output written to {output_path}")
-    tools = []
-    if include_structure:
-        if rna_tool.lower() == "linearfold":
-            tools.append("LinearFold")
+    # Output results
+    if format.lower() == "parquet":
+        df_output.write_parquet(output_path)
+        logger.info(f"Results written to {output_path} (parquet format)")
+    
+    elif format.lower() == "csv":
+        df_output.write_csv(output_path)
+        logger.info(f"Results written to {output_path} (CSV format)")
+    
+    elif format.lower() == "tsv":
+        df_output.write_csv(output_path, separator="\t")
+        logger.info(f"Results written to {output_path} (TSV format)")
+    
+    elif format.lower() == "md":
+        # Create markdown summary
+        md_content = f"# Sequence Statistics Report\n\n"
+        md_content += f"**Input file:** {input}\n"
+        md_content += f"**Total sequences:** {total_seqs}\n"
+        md_content += f"**Sequences after filtering:** {filtered_seqs}\n\n"
+        
+        if aggregate:
+            md_content += "## Aggregate Statistics\n\n"
+            for key, value in agg_stats.items():
+                if isinstance(value, float):
+                    md_content += f"- **{key}:** {value:.2f}\n"
+                else:
+                    md_content += f"- **{key}:** {value}\n"
         else:
-            tools.append("ViennaRNA")
+            md_content += "## Summary Statistics\n\n"
+            # Add basic summary stats even when not aggregating
+            if "length" in selected_fields:
+                length_summary = df.select([
+                    pl.col("length").min().alias("min"),
+                    pl.col("length").max().alias("max"),
+                    pl.col("length").mean().alias("mean"),
+                    pl.col("length").median().alias("median")
+                ]).to_dicts()[0]
+                
+                md_content += "### Length Statistics\n"
+                for stat, value in length_summary.items():
+                    md_content += f"- **{stat}:** {value:.2f}\n"
+                md_content += "\n"
+            
+            md_content += f"\n## First 10 sequences\n\n"
+            md_content += df_output.head(10).to_pandas().to_markdown(index=False)
+        
+        with open(output_path, 'w') as f:
+            f.write(md_content)
+        logger.info(f"Markdown report written to {output_path}")
+
+    # Display summary to console
+    console.print(f"\n[bold green]✓[/bold green] Processed {filtered_seqs} sequences")
+    console.print(f"[bold blue]Output:[/bold blue] {output_path}")
+    
+    if not aggregate and format.lower() != "md":
+        console.print("\n[bold]First 5 rows:[/bold]")
+        console.print(df_output.head(5))
+
+    # Remind about citations
+    tools = ["polars"]  # Tools used in this analysis
     remind_citations(tools)
-
-
-if __name__ == "__main__":
-    sequence_stats()
+    
+    logger.info("Sequence statistics calculation completed successfully")

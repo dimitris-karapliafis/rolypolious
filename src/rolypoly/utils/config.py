@@ -2,6 +2,7 @@ import logging
 import os
 from pathlib import Path
 from typing import Any, Dict, Optional
+from typing_extensions import Union
 
 from rolypoly.utils.loggit import setup_logging
 
@@ -29,16 +30,16 @@ class BaseConfig:
 
     def __init__(
         self,
-        output: Optional[str] = "rp_out",
-        config_file: Optional[Path] = None,
+        input: Union[Path, str],
+        output: Union[Path, str],
+        config_file: Union[Path, str, None] = None,
         threads: Optional[int] = 1,
-        memory: Optional[str] = "6gb",
-        log_file: Optional[Path] = None,
-        input: Optional[str] = None,
+        memory: str = "6gb",
+        log_file: Union[Path, logging.Logger, None] = None,
         temp_dir: Optional[str] = None,
         overwrite: bool = False,
         datadir: Optional[str] = None,
-        log_level: str = "info",
+        log_level: str = "INFO",
         keep_tmp: bool = False,
     ):
         import shutil
@@ -49,7 +50,7 @@ class BaseConfig:
         self.threads = threads
         self.memory = self.parse_memory(memory)
         self.config_file = Path(config_file) if config_file else None
-        self.log_file = Path(log_file) if log_file else None
+        self.log_file = (log_file) 
         self.overwrite = overwrite
         self.output = Path(output)
         self.output_dir = self.output if self.output.is_dir() else self.output
@@ -63,7 +64,7 @@ class BaseConfig:
             "warning": logging.WARNING,
             "error": logging.ERROR,
             "critical": logging.CRITICAL,
-        }.get(log_level, logging.INFO)
+        }.get(log_level.lower(), logging.INFO)
         self.logger = self.setup_logger()
 
         # Create output directory if needed

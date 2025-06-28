@@ -214,7 +214,7 @@ def virus_mapping(threads, memory, output, keep_tmp, db, db_path, log_file, inpu
     tools.append("mmseqs2")
     # remind_citations(tools)
     with open(f"{log_file}", "a") as f_out:
-        f_out.write(remind_citations(tools, return_bibtex=True))
+        f_out.write(remind_citations(tools, return_bibtex=True) or "")
 
 
 if __name__ == "__main__":

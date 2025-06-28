@@ -1,5 +1,7 @@
+import logging
 import os
 from pathlib import Path
+from typing import Union
 
 import rich_click as click
 from rich.console import Console
@@ -9,7 +11,7 @@ from rolypoly.utils.config import BaseConfig
 from rolypoly.utils.various import ensure_memory
 
 global tools
-tools = []
+tools = [""]
 
 console = Console(width=150)
 
@@ -22,12 +24,12 @@ class RNAAnnotationConfig(BaseConfig):
         input: Path,
         output_dir: Path,
         threads: int,
-        log_file: Path,
+        log_file: Union[Path, logging.Logger, None],
         log_level: str,
         memory: str,
-        override_params: dict[str, any] = None,
-        skip_steps: list[str] = None,
-        rnamotif_tool=None,
+        override_params: dict[str, object] = {},
+        skip_steps: list[str] = [],
+        rnamotif_tool = None,
         secondary_structure_tool: str = "RNAfold",
         ires_tool: str = "IRESfinder",
         trna_tool: str = "tRNAscan-SE",
@@ -88,7 +90,8 @@ class RNAAnnotationConfig(BaseConfig):
     "-i",
     "--input",
     required=True,
-    help="Input directory containing rolypoly's virus identification results",
+    type=click.Path(exists=True),
+    help="Input nucleotide sequence file (fasta, fna, fa, or faa)",
 )
 @click.option(
     "-o", "--output-dir", default="./annotate_RNA_output", help="Output directory path"
@@ -206,7 +209,7 @@ def annotate_RNA(
 
     # remind_citations(tools)
     with open(f"{config.log_file}", "w") as f_out:
-        f_out.write(remind_citations(tools, return_bibtex=True))
+        f_out.write(remind_citations(tools, return_bibtex=True) or "")
 
 
 def process_RNA_annotations(config):
@@ -220,10 +223,11 @@ def process_RNA_annotations(config):
         search_ribozymes,
         detect_ires,
         predict_trnas,
+        search_rna_motifs,
         search_rna_elements,
     ]
 
-    # TODO: use ChangeDirectory into a temp dir which on a "finally" leaves it and copies only whats needed
+    # TODO: Consider, maybe, use ChangeDirectory into a temp dir which on a "finally" leaves it and copies only whats needed
     for step in steps:
         step_name = step.__name__
         if step_name not in config.skip_steps:
@@ -269,10 +273,11 @@ def predict_secondary_structure_rnafold(config, input_fasta, output_file):
     """Predict RNA secondary structure using RNAfold."""
     import RNA
     from needletail import parse_fastx_file
+    # from needletail import Record as record
 
     with open(output_file, "w") as out_f:
-        for record in parse_fastx_file(str(input_fasta), "fasta"):
-            sequence = str(record.seq)
+        for record in parse_fastx_file(str(input_fasta)):
+            sequence = str(record.seq) # pyright: ignore 
 
             # convert to RNA
             sequence = sequence.replace("T", "U")
@@ -288,13 +293,15 @@ def predict_secondary_structure_rnafold(config, input_fasta, output_file):
             (ss_pf, fe) = RNA.pf_fold(sequence, md)
 
             # Generate dot-plot
-            pl = RNA.plot_type.get("dp")
-            RNA.file_PS_dot_plot(
-                config.output_dir / f"{record.id}_dotplot.ps", sequence, pl
-            )
+            RNA.plot_structure_svg(
+                data=sequence,
+                filename=config.output_dir / f"{record.id}_plot.svg", # pyright: ignore
+                sequence=sequence,
+                structure=ss             
+            ) # pyright: ignore
 
             # Write results
-            out_f.write(f">{record.id}\n")
+            out_f.write(f">{record.id}\n") # pyright: ignore
             out_f.write(f"Sequence: {sequence}\n")
             out_f.write(f"MFE structure: {ss}\n")
             out_f.write(f"MFE: {mfe:.2f} kcal/mol\n")
@@ -315,15 +322,15 @@ def predict_secondary_structure_rnastructure(config, input_fasta, output_file):
 
     with open(output_file, "w") as out_f:
         for record in parse_fastx_file(str(input_fasta)):
-            sequence = str(record.seq).replace("T", "U")
+            sequence = str(record.seq).replace("T", "U") # pyright: ignore
 
             # Write sequence to temporary file
-            temp_seq_file = config.output_dir / f"{record.id}_temp.seq"
+            temp_seq_file = config.output_dir / f"{record.id}_temp.seq" # pyright: ignore
             with open(temp_seq_file, "w") as temp_f:
                 temp_f.write(sequence)
 
             # Run RNAstructure Fold
-            ct_file = config.output_dir / f"{record.id}_temp.ct"
+            ct_file = config.output_dir / f"{record.id}_temp.ct" # pyright: ignore
             params = config.step_params["RNAstructure"]
             cmd = [
                 "Fold",
@@ -349,7 +356,7 @@ def predict_secondary_structure_rnastructure(config, input_fasta, output_file):
                 )
 
             # Write results
-            out_f.write(f">{record.id}\n")
+            out_f.write(f">{record.id}\n") # pyright: ignore
             out_f.write(f"Sequence: {sequence}\n")
             out_f.write(f"Structure: {structure}\n\n")
 
@@ -460,7 +467,7 @@ def search_ribozymes(config):
 
     if config.cm_db == "Rfam":
         cm_db_path = os.path.join(
-            Path(os.environ.get("ROLYPOLY_DATA")), "Rfam", "Rfam.cm"
+            Path(os.environ.get("ROLYPOLY_DATA", "")), "Rfam", "Rfam.cm"
         )
         tools.append("Rfam")
     elif config.cm_db == "custom":
@@ -498,6 +505,19 @@ def search_ribozymes(config):
         tools.append("cmsearch")
     return success
 
+def search_rna_elements(config):
+    config.logger.info("Searching for RNA elements")
+    input_fasta = config.input
+    output_file = config.output_dir / "rna_elements.out"
+    tools.append("RNAsselem")
+    
+    # Prepare parameters
+    params = config.step_params["RNAsselem"].copy()
+    
+    # Add required parameters
+    params.update({"i": str(input_fasta), "o": str(output_file)})
+    
+    
 
 def detect_ires(config):
     config.logger.info("Detecting IRES elements")
@@ -557,7 +577,7 @@ def detect_ires_irespy(config, input_fasta, output_file):
                 params = config.step_params["IRESpy"].copy()
 
                 # Add required parameters
-                params.update({"i": str(seq.seq), "o": str(output_file)})
+                params.update({"i": str(seq.seq), "o": str(output_file)}) # pyright: ignore 
 
                 success = run_command_comp(
                     base_cmd="irespy",
@@ -581,7 +601,7 @@ def detect_ires_irespy(config, input_fasta, output_file):
                         ]
                     )
                     out.write(
-                        f"{seq.id}\t{ires_data['ires_score']}\t{ires_data['ires_start']}\t{ires_data['ires_end']}\n"
+                        f"{seq.id}\t{ires_data['ires_score']}\t{ires_data['ires_start']}\t{ires_data['ires_end']}\n" # pyright: ignore 
                     )
 
     config.logger.info(f"IRESpy completed. Output written to {output_file}")
@@ -687,138 +707,142 @@ def predict_trnas_with_tRNAscan(config):
     return success
 
 
-def search_rna_elements(config):
-    """Search for RNA structural elements using lightmotif."""
-    from pathlib import Path
-
-    import lightmotif
-    from needletail import parse_fastx_file
-
-    config.logger.info(
-        f"Searching for RNA structural elements using {config.motif_db} database"
+def search_rna_motifs(config): # py 
+    """PSSM search using lightmotif."""
+    
+    config.logger.warning(
+        f"RNA motif search is still in development."
     )
+    # from pathlib import Path
+
+    # import lightmotif
+    # from needletail import parse_fastx_file
+
+    # config.logger.info(
+    #     f"Searching for RNA structural elements using {config.motif_db} database"
+    # )
     
-    # Check ROLYPOLY_DATA environment variable
-    if "ROLYPOLY_DATA" not in os.environ:
-        config.logger.error("ROLYPOLY_DATA environment variable is not set")
-        return False
+    # # Check ROLYPOLY_DATA environment variable
+    # if "ROLYPOLY_DATA" not in os.environ:
+    #     config.logger.error("ROLYPOLY_DATA environment variable is not set")
+    #     return False
         
-    datadir = Path(os.environ["ROLYPOLY_DATA"])
-    if not datadir.exists():
-        config.logger.error(f"ROLYPOLY_DATA directory {datadir} does not exist")
-        return False
+    # datadir = Path(os.environ["ROLYPOLY_DATA"])
+    # if not datadir.exists():
+    #     config.logger.error(f"ROLYPOLY_DATA directory {datadir} does not exist")
+    #     return False
     
-    if config.motif_db == "RolyPoly":
-        motifs_dir = datadir / "RNA_motifs" / "rolypoly"
-        if not motifs_dir.exists():
-            config.logger.warning(f"RolyPoly RNA motifs search is still in development. You can {motifs_dir} with your own motifs, but no guarantees that it will work.")
-            config.logger.warning("Skipping RNA motif search.")
-            # config.logger.warning(f"RolyPoly RNA motifs directory {motifs_dir} does not exist. Skipping RNA motif search.")
-            return False
-    elif config.motif_db == "jaspar_core":
-        motifs_dir = datadir / "RNA_motifs" / "jaspar_core"
-        if not motifs_dir.exists():
-            config.logger.warning(f"RolyPoly RNA motifs search is still in development. You can {motifs_dir} with your own motifs, but no guarantees that it will work.")
-            # config.logger.warning(f"JASPAR core RNA motifs directory {motifs_dir} does not exist. Skipping RNA motif search.")
-            return False
-    else:
-        motifs_dir = Path(config.motif_db)
-        # check if motifs_dir exists
-        if not motifs_dir.exists():
-            config.logger.error(f"Motifs directory {motifs_dir} does not exist")
-            return False
-        config.logger.info(f"Loading motifs from {motifs_dir}")
+    # if config.motif_db == "RolyPoly":
+    #     motifs_dir = datadir / "RNA_motifs" / "rolypoly"
+    #     if not motifs_dir.exists():
+    #         config.logger.warning(f"RolyPoly RNA motifs search is still in development. You can {motifs_dir} with your own motifs, but no guarantees that it will work.")
+    #         config.logger.warning("Skipping RNA motif search.")
+    #         # config.logger.warning(f"RolyPoly RNA motifs directory {motifs_dir} does not exist. Skipping RNA motif search.")
+    #         return False
+    # elif config.motif_db == "jaspar_core":
+    #     motifs_dir = datadir / "RNA_motifs" / "jaspar_core"
+    #     if not motifs_dir.exists():
+    #         config.logger.warning(f"RolyPoly RNA motifs search is still in development. You can {motifs_dir} with your own motifs, but no guarantees that it will work.")
+    #         # config.logger.warning(f"JASPAR core RNA motifs directory {motifs_dir} does not exist. Skipping RNA motif search.")
+    #         return False
+    # else:
+    #     motifs_dir = Path(config.motif_db)
+    #     # check if motifs_dir exists
+    #     if not motifs_dir.exists():
+    #         config.logger.error(f"Motifs directory {motifs_dir} does not exist")
+    #         return False
+    #     config.logger.info(f"Loading motifs from {motifs_dir}")
     
-    config.logger.info(f"Loading motifs from {config.motif_db} database")
+    # config.logger.info(f"Loading motifs from {config.motif_db} database")
 
-    input_fasta = config.input
-    output_file = config.output_dir / "rna_motifs.out"
+    # input_fasta = config.input
+    # output_file = config.output_dir / "rna_motifs.out"
 
-    # Load motifs from the database
-    motifs = []
-    try:
-        # For built-in databases, try to load from lightmotif
-        if config.motif_db in ["RolyPoly", "jaspar_core"]:
-            # Try loading the database name directly first
-            try:
-                loader = lightmotif.Loader(config.motif_db)
-                motifs.extend(list(loader))
-            except Exception:
-                # If that fails, skip motif search
-                config.logger.warning(f"Could not load {config.motif_db} database. This may not be available in your lightmotif installation. Skipping RNA motif search.")
-                return False
-        else:
-            # For custom paths, load from directory
-            loader = lightmotif.Loader(str(motifs_dir))
-            motifs.extend(list(loader))
+    # # Load motifs from the database
+    # motifs = []
+    # try:
+    #     # For built-in databases, try to load from lightmotif
+    #     if config.motif_db in ["RolyPoly", "jaspar_core"]:
+    #         # Try loading the database name directly first
+    #         try:
+    #             loader = lightmotif.lib.Loader(config.motif_db) # pyright: ignore 
+    #             motifs.extend(list(loader))
+    #         except Exception:
+    #             # If that fails, skip motif search
+    #             config.logger.warning(f"Could not load {config.motif_db} database. This may not be available in your lightmotif installation. Skipping RNA motif search.")
+    #             return False
+    #     else:
+    #         # For custom paths, load from directory
+    #         loader = lightmotif.lib.Loader(str(motifs_dir)) # pyright: ignore 
+    #         motifs.extend(list(loader))
             
-        if motifs:
-            config.logger.info(
-                f"Successfully loaded {len(motifs)} motifs from {config.motif_db}"
-            )
-            tools.append(f"lightmotif_{config.motif_db}")
-        else:
-            config.logger.warning(f"No motifs found in {config.motif_db} database")
-            return False
-    except ValueError as e:
-        config.logger.warning(f"Invalid motif database '{config.motif_db}': {e}. Skipping RNA motif search.")
-        return False
-    except Exception as e:
-        config.logger.warning(f"Error loading motifs from {config.motif_db}: {e}. Skipping RNA motif search.")
-        return False
+    #     if motifs:
+    #         config.logger.info(
+    #             f"Successfully loaded {len(motifs)} motifs from {config.motif_db}"
+    #         )
+    #         tools.append(f"lightmotif_{config.motif_db}")
+    #     else:
+    #         config.logger.warning(f"No motifs found in {config.motif_db} database")
+    #         return False
+    # except ValueError as e:
+    #     config.logger.warning(f"Invalid motif database '{config.motif_db}': {e}. Skipping RNA motif search.")
+    #     return False
+    # except Exception as e:
+    #     config.logger.warning(f"Error loading motifs from {config.motif_db}: {e}. Skipping RNA motif search.")
+    #     return False
 
-    with open(output_file, "w") as out:
-        out.write("Sequence\tMotif\tStart\tEnd\tScore\tStrand\n")
+    # with open(output_file, "w") as out:
+    #     out.write("Sequence\tMotif\tStart\tEnd\tScore\tStrand\n")
 
-        # Process each sequence
-        for record in parse_fastx_file(str(input_fasta), "fasta"):
-            sequence = str(record.seq)
+    #     # Process each sequence
+    #     for record in parse_fastx_file(str(input_fasta)):
+    #         sequence = str(record.seq) # pyright: ignore 
 
-            try:
-                # Create an encoded sequence for scanning
-                encoded = lightmotif.create(sequence)
-                if encoded is None:
-                    config.logger.warning(
-                        f"Could not encode sequence {record.id} - skipping"
-                    )
-                    continue
+    #         try:
+    #             # Create an encoded sequence for scanning
+    #             encoded = lightmotif.lib.create(sequence)
+    #             if encoded is None:
+    #                 config.logger.warning(
+    #                     f"Could not encode sequence {record.id} - skipping" # pyright: ignore 
+    #                 )
+    #                 continue
 
-                # Create striped sequence for scanning
-                striped = lightmotif.stripe(encoded)
+    #             # Create striped sequence for scanning
+    #             striped = lightmotif.lib.stripe(encoded) 
 
-                # Scan for each motif
-                for motif in motifs:
-                    try:
-                        # Configure striped sequence for this motif
-                        striped.configure(motif.matrix)
+    #             # Scan for each motif
+    #             for motif in motifs:
+    #                 try:
+    #                     # Configure striped sequence for this motif
+    #                     striped(motif.matrix)
 
-                        # Score all positions
-                        scores = motif.matrix.score(striped)
+    #                     # Score all positions
+    #                     scores = motif.matrix.score(striped)
 
-                        # Find positions above threshold
-                        params = config.step_params["lightmotif"]
-                        min_score = params.get("min_score", 0.5)
+    #                     # Find positions above threshold
+    #                     params = config.step_params["lightmotif"]
+    #                     min_score = params.get("min_score", 0.5)
 
-                        # Get scores as a list
-                        score_list = scores.unstripe()
+    #                     # Get scores as a list
+    #                     score_list = scores.unstripe()
 
-                        # Find positions above threshold
-                        for pos, score in enumerate(score_list):
-                            if score >= min_score:
-                                out.write(
-                                    f"{record.id}\t{motif.name}\t{pos + 1}\t{pos + motif.matrix.width}\t{score:.3f}\t+\n"
-                                )
-                    except Exception as e:
-                        config.logger.warning(
-                            f"Error scanning sequence {record.id} with motif {motif.name}: {e}"
-                        )
-                        continue
-            except Exception as e:
-                config.logger.warning(f"Error processing sequence {record.id}: {e}")
-                continue
+    #                     # Find positions above threshold
+    #                     for pos, score in enumerate(score_list):
+    #                         if score >= min_score:
+    #                             out.write(
+    #                                 f"{record.id}\t{motif.name}\t{pos + 1}\t{pos + motif.matrix.width}\t{score:.3f}\t+\n"
+    #                             )
+    #                 except Exception as e:
+    #                     config.logger.warning(
+    #                         f"Error scanning sequence {record.id} with motif {motif.name}: {e}"
+    #                     )
+    #                     continue
+    #         except Exception as e:
+    #             config.logger.warning(f"Error processing sequence {record.id}: {e}")
+    #             continue
 
-    config.logger.info(f"RNA motif scanning completed. Output written to {output_file}")
-    return True
+    # config.logger.info(f"RNA motif scanning completed. Output written to {output_file}")
+    # return True
 
 
 def process_ribozymes_data(config, ribozymes_file):
@@ -1089,18 +1113,35 @@ def process_rna_elements_data(rna_elements_file):
         return pl.read_csv(rna_elements_file, separator="\t").select(
             [
                 pl.col("Sequence").alias("sequence_id"),
-                pl.lit("RNA_motif").alias("type"),
+                pl.lit("Element").alias("type"),
                 pl.col("Start").cast(pl.Int64).alias("start"),
                 pl.col("End").cast(pl.Int64).alias("end"),
                 pl.lit("0").alias("score"),
-                pl.lit("RNAMotif").alias("source"),
+                pl.lit("RNAsselem").alias("source"),
                 pl.lit("+").alias("strand"),
-                pl.lit(".").alias("phase"),
-                pl.col("Motif").alias("motif_type"),
+                pl.lit(".").alias("phase")
             ]
         )
     return pl.DataFrame()
 
+def process_rna_motifs_data(config, rna_motifs_file):
+    import polars as pl
+
+    if rna_motifs_file.is_file():
+        return pl.read_csv(rna_motifs_file, separator="\t").select(
+            [
+                pl.col("sequence_id").alias("sequence_id"),
+                pl.lit("RNA_motif").alias("type"),
+                pl.col("start").cast(pl.Int64).alias("start"),
+                pl.col("end").cast(pl.Int64).alias("end"),
+                pl.col("score").alias("score"),
+                pl.lit("RNAMotif").alias("source"),
+                pl.lit("+").alias("strand"),
+                pl.lit(".").alias("phase"),
+                pl.col("motif_type").alias("motif_type"),
+            ]
+        )
+    return pl.DataFrame()
 
 def read_multiDBN_to_dataframe(MultiDBN_file):
     import polars as pl
@@ -1204,6 +1245,15 @@ def combine_results(config):
                     config.logger.debug(
                         f"Added RNA elements data:\n{rna_elements_data.head()}"
                     )
+
+        # Process RNA motifs
+        if "search_rna_motifs" not in config.skip_steps:
+            rna_motifs_file = config.output_dir / "rna_motifs.out"
+            if rna_motifs_file.is_file():
+                rna_motifs_data = process_rna_motifs_data(config, rna_motifs_file)
+                if not rna_motifs_data.is_empty():
+                    all_results.append(("rna_motif", rna_motifs_data))
+                    config.logger.debug(f"Added RNA motifs data:\n{rna_motifs_data.head()}")
 
         # Process secondary structure
         if "predict_secondary_structure" not in config.skip_steps:

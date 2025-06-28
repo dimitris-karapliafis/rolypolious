@@ -1,3 +1,4 @@
+import json
 import os
 from pathlib import Path
 from typing import Dict, Tuple, Union
@@ -14,47 +15,52 @@ tools = []
 class AssemblyConfig(BaseConfig):
     def __init__(self, **kwargs):
         # in this case output_dir and output are the same, so need to explicitly make sure it exists.
-        if not Path(kwargs.get("output")).exists():
-            kwargs["output_dir"] = kwargs.get("output")
-            Path(kwargs.get("output")).mkdir(parents=True, exist_ok=True)
-
+        if not Path(kwargs.get("output", "RP_assembly_output")).exists():
+            kwargs["output_dir"] = kwargs.get("output", "RP_assembly_output")
+            Path(kwargs.get("output", "RP_assembly_output")).mkdir(parents=True, exist_ok=True)
+        # initialize the BaseConfig class
         super().__init__(
-            input=kwargs.get("input"),
-            output=kwargs.get("output"),
-            keep_tmp=kwargs.get("keep_tmp"),
-            log_file=kwargs.get("log_file"),
-            threads=kwargs.get("threads"),
-            memory=kwargs.get("memory"),
-            config_file=kwargs.get("config_file"),
-            overwrite=kwargs.get("overwrite"),
-            log_level=kwargs.get("log_level"),
-        )  # initialize the BaseConfig class
-        # initialize the rest of the parameters (i.e. the ones that are not in the BaseConfig class)
-        self.assembler = kwargs.get("assembler")
-        self.keep_tmp = kwargs.get("keep_tmp")
+            input=kwargs.get("input", ""),
+            output=kwargs.get("output", "RP_assembly_output"),
+            keep_tmp=kwargs.get("keep_tmp", False),
+            log_file=kwargs.get("log_file", "assemble_logfile.txt"),
+            threads=kwargs.get("threads", 1),
+            memory=kwargs.get("memory", "6gb"),
+            config_file=kwargs.get("config_file", None),
+            overwrite=kwargs.get("overwrite", False),
+            log_level=kwargs.get("log_level", "info"),
+        )  
+        # initialize the command specific stuff\ parameters
+        self.assembler = kwargs.get("assembler", ["spades", "megahit"])
+        self.post_processing = kwargs.get("post_processing")
+        
         self.step_params = {
             "spades": {
-                "k": "21,33,45,57,63,69,71,83,95,103,107,111,119",
+                "k": "21,33,45,57,69,83,95,103,115,127",  # TODO: figure out a way to smartly choose which kmers to use prior to main spades call.
                 "mode": "meta",
             },
             "megahit": {"k-min": 21, "k-max": 147, "k-step": 8, "min-contig-len": 30},
             "penguin": {"min-contig-len": 150, "num-iterations": "aa:1,nucl:12"},
             "seqkit": {},
-            "bbwrap": {"maxindel": 200, "minid": 90, "untrim": True, "ambig": "best"},
+            "mmseqs": {"min-seq-id": 0.99, "cov-mode": 1, "c": 0.99, "kmer-per-seq-scale": 0.4},
+            "bbwrap": {"maxindel": 200, "minid": 90, "untrim": True, "ambig": "all"},
             "bowtie": {},
         }
         self.skip_steps = (
-            kwargs.get("skip_steps")
-            if isinstance(kwargs.get("skip_steps"), list)
-            else kwargs.get("skip_steps").split(",")
-            if isinstance(kwargs.get("skip_steps"), str)
+            kwargs.get("skip_steps", [])
+            if isinstance(kwargs.get("skip_steps", []), list)
+            else kwargs.get("skip_steps", "").split(",")
+            if isinstance(kwargs.get("skip_steps", ""), str)
             else []
         )
-        if kwargs.get("override_parameters") is not None:
-            self.logger.info(
-                f"override_parameters: {kwargs.get('override_parameters')}"
-            )
-            for step, params in kwargs.get("override_parameters").items():
+        override_params = (
+            json.loads(kwargs.get("override_parameters", "{}"))
+            if kwargs.get("override_parameters", "{}")
+            else {}
+        )
+        if override_params:
+            self.logger.info(f"override_parameters: {override_params}")
+            for step, params in override_params.items():
                 if step in self.step_params:
                     self.step_params[step].update(params)
                 else:
@@ -88,7 +94,7 @@ class LibraryInfo:
         self.raw_fasta.append(path)
 
     def add_rolypoly_data(
-        self, lib_name: str, interleaved: str = None, merged: str = None
+        self, lib_name: str, interleaved: str = "",  merged: str = ""
     ):
         if lib_name not in self.rolypoly_data:
             self.rolypoly_data[lib_name] = {"interleaved": None, "merged": None}
@@ -125,7 +131,7 @@ class LibraryInfo:
 
 
 def handle_input_files(
-    input_path: Union[str, Path], library_info: LibraryInfo = None
+    input_path: Union[str, Path], library_info: LibraryInfo = LibraryInfo()
 ) -> Tuple[Dict, int]:
     """Process input files and identify libraries.
 
@@ -139,25 +145,25 @@ def handle_input_files(
     import re
     from pathlib import Path
 
-    if library_info is None:
-        library_info = LibraryInfo()
-
     input_path = Path(input_path)
     libraries = {}
 
     if input_path.is_dir():
         # Look for rolypoly output first
         rolypoly_files = list(input_path.glob("*_final_*.fq.gz"))
+        processed_rolypoly = set()
         if rolypoly_files:
             for file in rolypoly_files:
                 lib_name = file.stem.split("_final_")[0]
                 if "interleaved" in file.name:
                     library_info.add_rolypoly_data(lib_name, interleaved=str(file))
+                    processed_rolypoly.add(file)
                 elif "merged" in file.name:
                     library_info.add_rolypoly_data(lib_name, merged=str(file))
+                    processed_rolypoly.add(file)
 
-        # Look for other fastq files
-        all_fastq = list(input_path.glob("*.f*q*"))
+        # Look for other fastq files (excluding already processed rolypoly files)
+        all_fastq = [f for f in input_path.glob("*.f*q*") if f not in processed_rolypoly]
         r1_pattern = re.compile(r".*_R1[._].*")
         r2_pattern = re.compile(r".*_R2[._].*")
 
@@ -200,7 +206,6 @@ def handle_input_files(
 
     return libraries, len(libraries)
 
-
 def run_spades(config, libraries):
     import subprocess
 
@@ -229,14 +234,15 @@ def run_spades(config, libraries):
             if lib["merged"]:
                 if config.step_params["spades"]["mode"] == "meta":
                     # metaSPAdes only works with paired-end data, so switch to regular mode
-                    spades_cmd = spades_cmd.replace("--meta", "")
-                spades_cmd += f" --s {i} {lib['merged']}"
+                    # spades_cmd = spades_cmd.replace("--meta", "")
+                    spades_cmd += f" --pe-m {i+1} {lib['merged']}"
+                else:
+                    spades_cmd += f" --s {i} {lib['merged']}"
 
     subprocess.run(spades_cmd, shell=True, check=True)
     config.logger.info(f"Finished SPAdes assembly")
 
     return spades_output / "scaffolds.fasta"
-
 
 def run_megahit(config, libraries):
     """Run MEGAHIT assembly."""
@@ -291,7 +297,6 @@ def run_megahit(config, libraries):
 
     return megahit_output / "final.contigs.fa"
 
-
 def run_penguin(config, libraries):
     """Run Penguin assembler."""
     import subprocess
@@ -313,9 +318,14 @@ def run_penguin(config, libraries):
     subprocess.run(penguin_cmd, shell=True, check=True)
     return penguin_output
 
-
 @click.command()
-@click.option("-t", "--threads", default=1, help="Threads ")
+@click.option(
+    "-t",
+    "--threads",
+    default=1,
+    help="Threads ",
+    type=int,
+)
 @click.option(
     "-M",
     "--memory",
@@ -325,11 +335,16 @@ def run_penguin(config, libraries):
 @click.option(
     "-o",
     "--output",
+    type=click.Path(file_okay=False, dir_okay=True, exists=False),
     default="RP_assembly_output",
     help="Output path (folder will be created if it doesn't exist)",
 )
 @click.option(
-    "-k", "--keep-tmp", is_flag=True, default=False, help="Keep temporary files"
+    "-k",
+    "--keep-tmp",
+    is_flag=True,
+    default=False,
+    help="Keep temporary files",
 )
 @click.option(
     "-g",
@@ -337,37 +352,55 @@ def run_penguin(config, libraries):
     default=lambda: f"{os.getcwd()}/assemble_logfile.txt",
     help="Path to a logfile, should exist and be writable (permission wise)",
 )
-@click.option("-i", "--input", help="Input directory containing fastq files")
+@click.option(
+    "-id",
+    "--input-dir",
+    default=None,
+    help="Input directory to scan for fastq files",
+    type=click.Path(exists=True, file_okay=False, dir_okay=True),
+)
 @click.option(
     "--paired-end",
     multiple=True,
     nargs=3,
+    default=(),
     help="Library number and paired FASTQ files: <lib_num> <R1> <R2>",
 )
 @click.option(
     "--single-end",
     multiple=True,
     nargs=2,
+    default=(),
     help="Library number and single-end FASTQ: <lib_num> <fastq>",
 )
 @click.option(
     "--merged",
     multiple=True,
     nargs=2,
+    default=(),
     help="Library number and merged FASTQ: <lib_num> <fastq>",
 )
 @click.option(
     "--long-read",
     multiple=True,
     nargs=2,
+    default=(),
     help="Library number and long read FASTQ: <lib_num> <fastq>",
 )
-@click.option("--raw-fasta", multiple=True, help="Raw FASTA file(s) to include")
+@click.option(
+    "--raw-fasta",
+    multiple=True,
+    default=(),
+    help="Raw FASTA file(s) to include",
+    type=click.Path(exists=True, file_okay=True, dir_okay=False),
+)
 @click.option(
     "-A",
     "--assembler",
-    default="spades,megahit,penguin",
-    help="Assembler choice. for multiple, give a comma-seperated list e.g. 'spades,penguin')",
+    default=["spades", "megahit"],
+    multiple=True,
+    type=click.Choice(["spades", "megahit", "penguin"]),
+    help="Assembler choice (spades,megahit,penguin). For multiple, use multiple -A flags or give a comma-separated list",
 )
 @click.option(
     "-op",
@@ -378,8 +411,10 @@ def run_penguin(config, libraries):
 @click.option(
     "-ss",
     "--skip-steps",
-    default="",
-    help="Comma-separated list of steps to skip. Example: --skip-steps seqkit,bowtie",
+    default=[],
+    type=click.Choice(["map", "post_processing", "rename_seqs"]), #, "stats"
+    multiple=True,
+    help="Comma-separated list of steps to skip. Example: --skip-steps post_processing,rename_seqs",
 )
 @click.option(
     "-ow",
@@ -395,20 +430,36 @@ def run_penguin(config, libraries):
     hidden=True,
     help="Log level. Options: debug, info, warning, error, critical",
 )
+@click.option(
+    "-p",
+    "--post-processing",
+    default=["rmdup"],
+    type=click.Choice(["linclust", "rmdup", "none"]),
+    help="""Method for merging or clustering the assembler output(s), options:
+    - linclust: use MMseqs2 linclust to cluster the assembler output at 99% identity and 99% coverage using coverage-mode 1. These parameters mean that most subsequences that are wholly contained within a larger sequence will dropped (use with caution, as a chimeras from one assembler may be merged with a chimera from another assembler may 'engulf' a non-chimeric sequence from the other assembler)
+    - rmdup: use seqkit rmdup to remove identical sequences (same sequence, same length, or its' reverse complement)
+    - none: do not perform any post assembly processing""",
+)
 def assembly(
-    input=None,
-    paired_end=None,
-    single_end=None,
-    merged=None,
-    long_read=None,
-    raw_fasta=None,
-    **kwargs,
+    input_dir,
+    paired_end,
+    single_end,
+    merged,
+    long_read,
+    raw_fasta,
+    assembler,
+    post_processing,
+    output,
+    threads,
+    memory,
+    keep_tmp,
+    log_file,
+    override_parameters,
+    skip_steps,
+    overwrite,
+    log_level,
 ):
-    """Assembly wrapper - takes in (presumably filtered) reads, and assembles them using one or more assemblers.
-    Currently supported assemblers are:
-    • SPAdes (metaSPAdes)
-    • MEGAHIT
-    • Penguin
+    """Assembly wrapper - takes in reads, assembles them using one or more assemblers, then performs post-assembly processing (rmdup, linclust, or none).
     """
     import shutil
 
@@ -419,34 +470,53 @@ def assembly(
     from rolypoly.utils.fax import process_sequences, read_fasta_df, rename_sequences
     from rolypoly.utils.various import run_command_comp
 
-    if not kwargs.get("overwrite"):
-        if Path(kwargs.get("output")).exists():
-            raise ValueError(
-                f"Output directory {kwargs.get('output')} already exists. Use -ow to overwrite."
+    if not overwrite:
+        if Path(output).exists():
+            raise click.ClickException(
+                f"Output directory '{output}' already exists. Use --overwrite / -ow to overwrite."
             )
     else:
-        shutil.rmtree(kwargs.get("output"), ignore_errors=True)
+        shutil.rmtree(output, ignore_errors=True)
 
-    Path(kwargs.get("output")).mkdir(parents=True, exist_ok=True)
-    # print(kwargs.get("output"))
+    Path(output).mkdir(parents=True, exist_ok=True)
+
+    # Validate input options before creating config
+    has_explicit_inputs = any([paired_end, single_end, merged, long_read, raw_fasta])
+    has_input_dir = input_dir is not None
+
+    if not has_explicit_inputs and not has_input_dir:
+        raise click.ClickException(
+            "Error: No input files specified. You must provide eithedr:\n"
+            "  - An input directory using --input-dir, or\n"
+            "  - Explicit library files using --paired-end, --single-end, --merged, --long-read, or --raw-fasta"
+        )
 
     config = AssemblyConfig(
-        input=Path(input),
-        output=Path(kwargs.get("output")),
-        threads=kwargs.get("threads"),
-        log_file=Path(kwargs.get("log_file")),
-        memory=(kwargs.get("memory")),
-        assembler=kwargs.get("assembler"),
-        keep_tmp=kwargs.get("keep_tmp"),
-        override_params=(kwargs.get("override_parameters")),
-        skip_steps=(kwargs.get("skip_steps")),
-        log_level=kwargs.get("log_level"),
+        input_dir=Path(input_dir) if input_dir else None,
+        output=Path(output),
+        threads=threads,
+        log_file=Path(log_file),
+        memory=memory,
+        assembler=assembler,
+        keep_tmp=keep_tmp,
+        override_parameters=override_parameters,
+        skip_steps=skip_steps,
+        log_level=log_level,
+        post_processing=post_processing,
+        overwrite=overwrite,
     )
 
-    config.logger.info(f"Starting assembly process    ")
+    config.logger.info(f"Starting assembly process")
     log_start_info(config.logger, config_dict=config.__dict__)
     config.logger.info(f"Saving config to {config.output_dir / 'assembly_config.json'}")
     config.save(config.output_dir / "assembly_config.json")
+
+    if has_explicit_inputs and has_input_dir:
+        config.logger.warning(
+            "Warning: Both explicit library options and --input-dir specified. "
+            "Files from both sources will be combined for assembly."
+            "This is may lead to unexpected results."
+        )
 
     library_info = LibraryInfo()
 
@@ -468,8 +538,8 @@ def assembly(
             library_info.add_raw_fasta(path)
 
     # Process input directory if provided
-    if input:
-        libraries, n_libraries = handle_input_files(input, library_info)
+    if input_dir:
+        libraries, n_libraries = handle_input_files(input_dir, library_info)
     else:
         libraries = {}
         for lib_name, data in library_info.rolypoly_data.items():
@@ -480,13 +550,13 @@ def assembly(
     config.logger.info(f"Libraries: {libraries}")
     contigs4eval = []
 
-    if "spades" in config.assembler.lower() and "spades" not in config.skip_steps:
+    if "spades" in config.assembler and "spades" not in config.skip_steps:
         contigs4eval.append(run_spades(config, libraries))
         tools.append("spades")
-    if "megahit" in config.assembler.lower() and "megahit" not in config.skip_steps:
+    if "megahit" in config.assembler and "megahit" not in config.skip_steps:
         contigs4eval.append(run_megahit(config, libraries))
         tools.append("megahit")
-    if "penguin" in config.assembler.lower() and "penguin" not in config.skip_steps:
+    if "penguin" in config.assembler and "penguin" not in config.skip_steps:
         contigs4eval.append(run_penguin(config, libraries))
         tools.append("penguin")
 
@@ -502,74 +572,121 @@ def assembly(
                 with open(str(contig_file), "r") as infile:
                     outfile.write(infile.read())
 
-        try:
-            # Rename sequences
-            config.logger.info("Reading and parsing FASTA file")
-            df = read_fasta_df(concat_file)
-            config.logger.info(f"Found {len(df)} sequences")
+        if "rename" not in config.skip_steps:
+            try:
+                # Rename sequences
+                config.logger.info("Reading and parsing FASTA file")
+                df = read_fasta_df(concat_file)
+                config.logger.info(f"Found {len(df)} sequences")
 
-            config.logger.info("Renaming sequences")
-            df_renamed, id_map = rename_sequences(df, prefix="CID", use_hash=False)
-            config.logger.info("Calculating sequence statistics")
-            df_renamed = process_sequences(df_renamed)
+                config.logger.info("Renaming sequences")
+                df_renamed, id_map = rename_sequences(df, prefix="CID", use_hash=False)
+                config.logger.info("Calculating sequence statistics")
+                df_renamed = process_sequences(df_renamed)
 
-            # Write renamed sequences
-            renamed_file = str(config.output_dir / "all_contigs_renamed.fasta")
-            config.logger.info(f"Writing renamed sequences to {renamed_file}")
-            with open(renamed_file, "w") as f:
-                for header, seq in zip(df_renamed["header"], df_renamed["sequence"]):
-                    f.write(f">{header}\n{seq}\n")
+                # Write renamed sequences
+                renamed_file = str(config.output_dir / "all_contigs_renamed.fasta")
+                config.logger.info(f"Writing renamed sequences to {renamed_file}")
+                with open(renamed_file, "w") as f:
+                    for header, seq in zip(df_renamed["header"], df_renamed["sequence"]):
+                        f.write(f">{header}\n{seq}\n")
 
-            # Update contigs4eval to use renamed file
-            contigs4eval = [renamed_file]
+                # Update contigs4eval to use renamed file
+                contigs4eval = [renamed_file]
 
-            # Save mapping file
-            mapping_file = str(config.output_dir / "contigs_id_map.tsv")
-            config.logger.info(f"Saving ID mapping to {mapping_file}")
-            mapping_df = pl.DataFrame(
-                {
-                    "old_id": list(id_map.keys()),
-                    "new_id": list(id_map.values()),
-                    "length": df_renamed["length"],
-                    "gc_content": df_renamed["gc_content"].round(2),
-                }
+                # Save mapping file
+                mapping_file = str(config.output_dir / "contigs_id_map.tsv")
+                config.logger.info(f"Saving ID mapping to {mapping_file}")
+                mapping_df = pl.DataFrame(
+                    {
+                        "old_id": list(id_map.keys()),
+                        "new_id": list(id_map.values()),
+                        "length": df_renamed["length"],
+                        "gc_content": df_renamed["gc_content"].round(2),
+                    }
+                )
+                mapping_df.write_csv(mapping_file, separator="\t")
+
+            except Exception as e:
+                config.logger.error(f"Error during sequence renaming: {str(e)}")
+                config.logger.warning("Continuing with original contig files")
+                # Keep original contigs4eval if renaming fails
+            
+            
+    
+    # Post-processing step (deduplication or clustering)
+    post_processed_output = None
+    if len(contigs4eval) > 0 and config.post_processing != "none":
+        if config.post_processing == "rmdup":
+            config.logger.info("Starting sequence deduplication with seqkit")
+            tools.append("seqkit")
+            post_processed_output = str(config.output_dir / "post_processed_contigs.fasta")
+            
+            run_command_comp(
+                "seqkit rmdup",
+                positional_args=[str(contigs4eval[0])],
+                positional_args_location="end",
+                params={
+                    "by-seq": True,  # Use sequence for deduplication
+                    "line-width": "0",
+                    "threads": str(config.threads),
+                    "out-file": post_processed_output,
+                    "dup-num-file": str(config.output_dir / "Redundancy_lookup.txt"),
+                },
+                logger=config.logger,
+                prefix_style="double",
             )
-            mapping_df.write_csv(mapping_file, separator="\t")
+            config.logger.info("Finished sequence deduplication")
+            
+        elif config.post_processing == "linclust":
+            config.logger.info("Starting sequence clustering with MMseqs2 easy-linclust")
+            tools.append("mmseqs2")
+            
+            # Create temporary directory for MMseqs2
+            mmseqs_tmp = str(config.output_dir / "mmseqs_tmp")
+            os.makedirs(mmseqs_tmp, exist_ok=True)
+            
+            # Set up output prefix for easy-linclust
+            cluster_prefix = str(config.output_dir / "mmseqs_cluster")
+            post_processed_output = f"{cluster_prefix}_rep_seq.fasta"
+            
+            # Run easy-linclust: input_fasta, output_prefix, tmp_dir
+            run_command_comp(
+                "mmseqs easy-linclust",
+                positional_args=[str(contigs4eval[0]), cluster_prefix, mmseqs_tmp],
+                params={
+                    "min-seq-id": str(config.step_params["mmseqs"]["min-seq-id"]),
+                    "cov-mode": str(config.step_params["mmseqs"]["cov-mode"]),
+                    "c": str(config.step_params["mmseqs"]["c"]),
+                    "threads": str(config.threads),
+                },
+                logger=config.logger,
+                positional_args_location="end",
+            )
+            
+            config.logger.info("Finished sequence clustering")
+            config.logger.info(f"Representative sequences: {post_processed_output}")
+            config.logger.info(f"Cluster assignments: {cluster_prefix}_cluster.tsv")
+            
+            # Clean up temporary files if not keeping them
+            if not config.keep_tmp:
+                import shutil
+                shutil.rmtree(mmseqs_tmp, ignore_errors=True)
 
-        except Exception as e:
-            config.logger.error(f"Error during sequence renaming: {str(e)}")
-            config.logger.warning("Continuing with original contig files")
-            # Keep original contigs4eval if renaming fails
-
-    # Deduplication step # TODO: add as optional a linclust step.
-    if "seqkit" not in config.skip_steps and len(contigs4eval) > 0:
-        tools.append("seqkit")
-        dedup_output = str(config.output_dir / "rmdup_contigs.fasta")
-        run_command_comp(
-            "seqkit rmdup",
-            positional_args=[str(contigs4eval[0])],
-            positional_args_location="end",
-            params={
-                "by-seq": True,  # Use sequence for deduplication
-                "line-width": "0",
-                "threads": str(config.threads),
-                "out-file": dedup_output,
-                "dup-num-file": str(config.output_dir / "Redundancy_lookup.txt"),
-            },
-            logger=config.logger,
-            prefix_style="double",
-        )
-        config.logger.info(f"Finished deduplicating: {contigs4eval}")
-
-        # Verify dedup output exists before proceeding
-        if not os.path.exists(dedup_output) or os.path.getsize(dedup_output) == 0:
+        # Verify post-processing output exists before proceeding
+        if post_processed_output and (not os.path.exists(post_processed_output) or os.path.getsize(post_processed_output) == 0):
             config.logger.error(
-                f"Deduplication failed: {dedup_output} not found or empty"
+                f"Post-processing failed: {post_processed_output} not found or empty"
             )
             return
+    elif len(contigs4eval) > 0 and config.post_processing == "none":
+        config.logger.info("Skipping post-processing as requested")
+        post_processed_output = str(contigs4eval[0])  # Use original contigs
+    else:
+        config.logger.warning("No contigs available for post-processing")
 
     # Map reads back to contigs using either bbmap_skimmer (default) or bowtie (low-mem)
-    if os.path.exists(str(config.output_dir / "rmdup_contigs.fasta")):
+    if post_processed_output and os.path.exists(post_processed_output):
         interleaved = ",".join(
             str(lib["interleaved"]) for lib in libraries.values() if lib["interleaved"]
         )
@@ -590,7 +707,7 @@ def assembly(
                 input_reads.extend(merged.split(","))
 
             bbmap(
-                ref=str(config.output_dir / "rmdup_contigs.fasta"),
+                ref=post_processed_output,
                 in_file=",".join(input_reads),
                 out=str(config.output_dir / "assembly_bbmap.sam"),
                 threads=str(config.threads),
@@ -629,7 +746,7 @@ def assembly(
             index_success = run_command_comp(
                 "bowtie-build",
                 positional_args=[
-                    str(config.output_dir / "rmdup_contigs.fasta"),
+                    post_processed_output,
                     str(config.output_dir / "bowtie_index/contigs"),
                 ],
                 params={"threads": str(config.threads)},
@@ -719,38 +836,56 @@ def assembly(
     config.logger.info(f"Finished assembly evaluation on: {contigs4eval}")
 
     if not config.keep_tmp:
-        files_to_remove = [
-            "tmp",
-            str(config.output_dir / "all_interleaved.fq.gz"),
-            str(config.output_dir / "all_merged.fq.gz"),
+        # Clean up temporary files and directories
+        cleanup_paths = [
+            "tmp",  # Generic tmp directory
+            config.output_dir / "all_interleaved.fq.gz",
+            config.output_dir / "all_merged.fq.gz",
+            config.output_dir / "megahit_custom_out" / "intermediate_contigs",
         ]
-        folders_to_remove = [
-            str(config.output_dir / "megahit_custom_out/intermediate_contigs")
-        ]
-        for file in files_to_remove:
-            if os.path.exists(file):
-                if os.path.isdir(file):
-                    shutil.rmtree(file, ignore_errors=True)
+        
+        # Add SPAdes subdirectories for cleanup
+        spades_output_dir = config.output_dir / "spades_meta_output"
+        if spades_output_dir.exists():
+            # Remove subdirectories but keep the main spades output
+            for item in spades_output_dir.iterdir():
+                if item.is_dir():
+                    cleanup_paths.append(item)
+        
+        # Clean up all paths
+        for path in cleanup_paths:
+            path = Path(path)
+            if path.exists():
+                if path.is_dir():
+                    config.logger.debug(f"Removing temporary directory: {path}")
+                    shutil.rmtree(path, ignore_errors=True)
                 else:
-                    os.unlink(file)
-        for folder in folders_to_remove:
-            if os.path.exists(folder):
-                shutil.rmtree(folder, ignore_errors=True)
-        if os.path.exists(str(config.output_dir / "spades_meta_output")):
-            for spades_folder in os.listdir(
-                str(config.output_dir / "spades_meta_output")
-            ):
-                if Path(
-                    str(config.output_dir / "spades_meta_output") / spades_folder
-                ).is_dir():
-                    shutil.rmtree(
-                        str(config.output_dir / "spades_meta_output" / spades_folder)
-                    )
+                    config.logger.debug(f"Removing temporary file: {path}")
+                    path.unlink(missing_ok=True)
 
     config.logger.info("Assembly process completed successfully.")
-    config.logger.info(
-        f"Final redundancy filtered contigs from the assemblers used are in {config.output_dir}/rmdup_contigs.fasta"
-    )
+    
+    if post_processed_output:
+        post_processing_method = config.post_processing
+        if post_processing_method == "rmdup":
+            config.logger.info(
+                f"Final deduplicated contigs from the assemblers used are in {post_processed_output}"
+            )
+        elif post_processing_method == "linclust":
+            config.logger.info(
+                f"Final clustered contigs from the assemblers used are in {post_processed_output}"
+            )
+            cluster_prefix = str(config.output_dir / "mmseqs_cluster")
+            config.logger.info(
+                f"Cluster assignments are in {cluster_prefix}_cluster.tsv"
+            )
+        else:
+            config.logger.info(
+                f"Final contigs from the assemblers used are in {post_processed_output}"
+            )
+    else:
+        config.logger.info("No final contigs were produced.")
+    
     config.logger.info(
         f"Reads unassembled from the assembly are in {config.output_dir}/assembly_bbw_unassembled.fq.gz"
     )
@@ -759,7 +894,9 @@ def assembly(
     )
 
     with open(f"{config.log_file}", "w") as f_out:
-        f_out.write(remind_citations(tools, return_bibtex=True))
+        f_out.write(remind_citations(tools, return_bibtex=True) or "")
+
+
 
 
 if __name__ == "__main__":

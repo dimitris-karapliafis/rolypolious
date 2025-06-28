@@ -43,11 +43,17 @@ import rich_click as click
 @click.option(
     "-A",
     "--assembler",
-    default="spades,megahit,penguin",
-    help="Assembler choice. For multiple, give a comma-separated list",
+    default="spades,megahit",
+    help="Assembler choice (spades,megahit,penguin). For multiple, give a comma-separated list",
 )
 @click.option(
-    "-d", "--post-cluster", is_flag=True, help="Perform post-assembly clustering"
+    "-d",
+    "--post-processing",
+    default="none",
+    help="""Method for merging or clustering the assembler output(s), options:
+    - linclust: use MMseqs2 linclust to cluster the assembler output at 99% identity and 99% coverage using coverage-mode 1. These parameters mean that most subsequences that are wholly contained within a larger sequence will dropped (use with caution, as a chimeras from one assembler may be merged with a chimera from another assembler may 'engulf' a non-chimeric sequence from the other assembler)
+    - rmdup: use seqkit rmdup to remove identical sequences (same sequence, same length, or its' reverse complement)
+    - none: do not perform any post assembly processing""",
 )
 # Filter contigs options
 @click.option(
@@ -142,6 +148,7 @@ def run_pipeline(
     Returns:
         None: Results are written to the specified output directory
     """
+    import sys
     from rolypoly.commands.annotation.annotate import annotate
     from rolypoly.commands.assembly.assemble import assembly
     from rolypoly.commands.assembly.filter_contigs import filter_contigs
@@ -163,15 +170,10 @@ def run_pipeline(
     log_file = output_dir / "rolypoly_pipeline.log"
     logger = setup_logging(log_file, log_level.upper())
     log_start_info(logger, dict(zip(sys.argv[1::2], sys.argv[2::2])))
-    if log_level == "debug":
-        logger.debug("Debug mode enabled")
-        import sys
-
-        log_start_info(logger, dict(zip(sys.argv[1::2], sys.argv[2::2])))
 
     # Step 1: Filter Reads
     logger.info("Step 1: Filtering reads    ")
-    filtered_reads = output_dir / "filtered_reads"
+    filtered_reads = output_dir / "filtered_rea ds"
     if skip_existing:
         if filtered_reads.exists():
             logger.info("Filtered reads already exist, skipping step")

@@ -1,3 +1,4 @@
+from typing import Union
 import os
 from pathlib import Path
 
@@ -19,18 +20,19 @@ from rolypoly.utils.config import BaseConfig
 
 console = Console(width=150)
 global tools
-# tools = []
+tools = []
 
 
 class AnnotationConfig(BaseConfig):
     def __init__(self, *args, **kwargs):
         # Extract BaseConfig parameters
         base_config_params = {
-            "input": kwargs.get("input"),
-            "output": kwargs.get("output"),
-            "threads": kwargs.get("threads"),
-            "log_file": kwargs.get("log_file"),
-            "memory": kwargs.get("memory"),
+            "input": kwargs.get("input", ""),
+            "output": kwargs.get("output", ""),
+            "threads": kwargs.get("threads", 1),
+            "log_file": kwargs.get("log_file", ""),
+            "log_level": kwargs.get("log_level", "INFO"),
+            "memory": kwargs.get("memory", "6gb"),
         }
         super().__init__(**base_config_params)
 
@@ -39,8 +41,8 @@ class AnnotationConfig(BaseConfig):
         (self.output_dir / "protein_annotation").mkdir(parents=True, exist_ok=True)
 
         self.skip_steps = kwargs.get("skip_steps", [])
-        self.rna_config = None
-        self.protein_config = None
+        self.rna_config: Union[RNAAnnotationConfig, None] = None
+        self.protein_config: Union[ProteinAnnotationConfig, None] = None
 
 
 @click.command(name="annotate")
@@ -48,7 +50,8 @@ class AnnotationConfig(BaseConfig):
     "-i",
     "--input",
     required=True,
-    help="Input directory containing rolypoly's virus identification and annotation results",
+    type=click.Path(exists=True),
+    help="Input nucleotide sequence file (fasta, fna, fa, or faa)",
 )
 @click.option(
     "-o", "--output", default="rolypoly_annotation", help="Output file location."
@@ -118,6 +121,13 @@ class AnnotationConfig(BaseConfig):
     "--min-orf-length", default=30, help="Minimum ORF length for gene prediction"
 )
 @click.option(
+    "--log-level",
+    default="INFO",
+    type=click.Choice(["INFO", "DEBUG", "WARNING", "ERROR", "CRITICAL"]),
+    help="Log level",
+    hidden=True,
+)
+@click.option(
     "--search-tool",
     default="hmmsearch",
     type=click.Choice(
@@ -141,6 +151,7 @@ def annotate(
     domain_db,
     custom_domain_db,
     min_orf_length,
+    log_level,
     search_tool,
 ):
     """Functionally and structurally annotate RNA viral sequence(s) (Wrapper for annotate_prot, annotate_RNA)"""
@@ -157,6 +168,7 @@ def annotate(
         input=input,
         output=output_path,
         threads=threads,
+        log_level=log_level,
         log_file=log_file,
         memory=memory,
         skip_steps=skip_steps_list,
@@ -164,9 +176,10 @@ def annotate(
 
     # Create RNA config
     rna_config = RNAAnnotationConfig(
-        input=Path(input).absolute().resolve(),
+        input= Path(config.input).absolute().resolve(), # type: ignore
         output_dir=config.output_dir / "rna_annotation",
         threads=threads,
+        log_level=log_level,        
         log_file=config.logger,  # Pass the logger directly
         memory=memory,
         override_params=override_params,
@@ -228,7 +241,7 @@ def annotate(
 
     # remind_citations(tools)
     with open(f"{config.log_file}", "w") as f_out:
-        f_out.write(remind_citations(tools, return_bibtex=True))
+        f_out.write(remind_citations(tools, return_bibtex=True) or "")
 
 
 if __name__ == "__main__":

@@ -83,28 +83,20 @@ class SequenceExpr:
             lambda x: _calc_kmers(x, k), return_dtype=pl.Struct
         )
 
+    def is_valid_codon(self) -> pl.Expr:
+        """Check if sequence length is divisible by 3 (valid for codon analysis)"""
+        return (self._expr.str.len_chars() % 3) == 0
 
-@pl.api.register_lazyframe_namespace("from_fastx")
-def init(input_file: Union[str, Path], batch_size: int = 512) -> pl.LazyFrame:
-    """Scan a FASTA/FASTQ file into a lazy polars DataFrame.
 
-    This function extends polars with the ability to lazily read FASTA/FASTQ files.
-    It can be used directly as pl.LazyFrame.fastx.scan("sequences.fasta").
-
-    Args:
-        path (Union[str, Path]): Path to the FASTA/FASTQ file
-        batch_size (int, optional): Number of records to read per batch. Defaults to 512.
-
-    Returns:
-        pl.LazyFrame: Lazy DataFrame with columns:
-            - header: Sequence headers (str)
-            - sequence: Sequences (str) # TODO: maybe somehow move to largeutf8?
-            - quality: Quality scores (only for FASTQ)
-    """
-
+def _scan_fastx_file(input_file: Union[str, Path], batch_size: int = 512) -> pl.LazyFrame:
+    """Internal function to scan a FASTA/FASTQ file into a lazy polars DataFrame."""
+    
     def file_has_quality(file: Union[str, Path]) -> bool:
-        first_record = next(parse_fastx_file(file))
-        return first_record.qual is not None
+        try:
+            first_record = next(parse_fastx_file(file))
+            return hasattr(first_record, 'qual') and getattr(first_record, 'qual', None) is not None  # type: ignore
+        except StopIteration:
+            return False
 
     has_quality = file_has_quality(input_file)
     if has_quality:
@@ -121,9 +113,9 @@ def init(input_file: Union[str, Path], batch_size: int = 512) -> pl.LazyFrame:
             for _ in range(batch_size):
                 try:
                     record = next(reader)
-                    row = [record.id, record.seq]
-                    if has_quality:
-                        row.append(record.qual)
+                    row = [str(getattr(record, 'id', '')), str(getattr(record, 'seq', ''))]  # type: ignore
+                    if has_quality and hasattr(record, 'qual'):
+                        row.append(str(getattr(record, 'qual', '')))  # type: ignore
                     chunk.append(row)
                 except StopIteration:
                     if chunk:
@@ -134,9 +126,37 @@ def init(input_file: Union[str, Path], batch_size: int = 512) -> pl.LazyFrame:
     return pl.concat(read_chunks(), how="vertical")
 
 
+@pl.api.register_lazyframe_namespace("from_fastx")
+class FastxLazyFrameAccessor:
+    def __init__(self, ldf: pl.LazyFrame):
+        self._ldf = ldf
+
+    def scan(self, input_file: Union[str, Path], batch_size: int = 512) -> pl.LazyFrame:
+        """Scan a FASTA/FASTQ file into a lazy polars DataFrame.
+
+        This function extends polars with the ability to lazily read FASTA/FASTQ files.
+        It can be used directly as pl.LazyFrame.from_fastx.scan("sequences.fasta").
+
+        Args:
+            input_file (Union[str, Path]): Path to the FASTA/FASTQ file
+            batch_size (int, optional): Number of records to read per batch. Defaults to 512.
+
+        Returns:
+            pl.LazyFrame: Lazy DataFrame with columns:
+                - header: Sequence headers (str)
+                - sequence: Sequences (str) 
+                - quality: Quality scores (only for FASTQ)
+        """
+        return _scan_fastx_file(input_file, batch_size)
+
+
 @pl.api.register_dataframe_namespace("from_fastx")
-def init(file: Union[str, Path], batch_size: int = 512) -> pl.DataFrame:
-    return pl.LazyFrame.from_fastx(file, batch_size).collect()
+class FastxDataFrameAccessor:
+    def __init__(self, df: pl.DataFrame):
+        self._df = df
+
+    def scan(self, file: Union[str, Path], batch_size: int = 512) -> pl.DataFrame:
+        return _scan_fastx_file(file, batch_size).collect()
 
 
 @pl.api.register_expr_namespace("rna")
@@ -245,8 +265,8 @@ def read_fasta_needletail(fasta_file: str) -> tuple[list[str], list[str]]:
     seqs = []
     seq_ids = []
     for record in parse_fastx_file(fasta_file):
-        seqs.append(record.seq)
-        seq_ids.append(record.id)
+        seqs.append(getattr(record, 'seq', ''))  # type: ignore
+        seq_ids.append(getattr(record, 'id', ''))  # type: ignore
     return seq_ids, seqs
 
 
@@ -291,27 +311,11 @@ def filter_fasta_by_headers(
 
     with open(output_file, "w") as out_f:
         for record in parse_fastx_file(fasta_file):
-            matches = any(header in str(record.id) for header in headers_list)
+            matches = any(header in str(getattr(record, 'id', '')) for header in headers_list)  # type: ignore
             if (
                 matches ^ invert
             ):  # XOR operation: write if (matches and not invert) or (not matches and invert)
-                out_f.write(f">{record.id}\n{record.seq}\n")
-
-
-def read_fasta_polars(fasta_file: str, idcol: str = "seq_id", seqcol: str = "seq"):
-    """Read a FASTA file into a Polars DataFrame, Uses needletail for fast FASTA parsing and returns a Polars DataFrame with customizable column names for sequence IDs and sequences.
-
-    Args:
-        fasta_file (str): Path to input FASTA file
-        idcol (str, optional): Name for the sequence ID column.
-        seqcol (str, optional): Name for the sequence column.
-
-    Returns:
-        polars.DataFrame: DataFrame with two columns for IDs and sequences
-    """
-
-    seq_ids, seqs = read_fasta_needletail(fasta_file)
-    return pl.DataFrame({idcol: seq_ids, seqcol: seqs})
+                out_f.write(f">{getattr(record, 'id', '')}\n{getattr(record, 'seq', '')}\n")  # type: ignore
 
 
 # def translate_6frx_seqkit(input_file: str, output_file: str, threads: int) -> None:
@@ -371,7 +375,7 @@ def pyro_predict_orfs(
     input_file: str,
     output_file: str,
     threads: int,
-    gv_or_else: str = "gv",
+    # gv_or_else: str = "gv",
     genetic_code: int = 11,  # NOT USED YET # TODO: add SUPPORT for this.
     model: str = "1",  # NOT USED YET/at all.
 ) -> None:
@@ -395,20 +399,16 @@ def pyro_predict_orfs(
     import multiprocessing.pool
 
     import pyrodigal_gv as pyro_gv
-    from pyrodigal_gv import pyrodigal as pyro
 
     sequences = []
     ids = []
     for record in parse_fastx_file(input_file):
-        sequences.append((record.seq))
-        ids.append((record.id))
+        sequences.append((record.seq)) # type: ignore
+        ids.append((record.id)) # type: ignore
 
-    if gv_or_else == "gv":
-        gene_finder = pyro_gv.ViralGeneFinder(
-            meta=True
-        )  # a single gv gene finder object
-    else:
-        gene_finder = pyro.GeneFinder(meta=True)  # a single gene finder object
+    gene_finder = pyro_gv.ViralGeneFinder(
+        meta=True
+    )  # a single gv gene finder object
 
     with multiprocessing.pool.Pool(processes=threads) as pool:
         orfs = pool.map(gene_finder.find_genes, sequences)
@@ -545,7 +545,7 @@ def guess_fastq_properties(file_path: str, mb_to_read: int = 20) -> dict:
     }
 
 
-def guess_fasta_alpha(input_file: str) -> str:
+def guess_fasta_alpha(input_file) -> str:
     # only peek at the first sequence
     with open(input_file, "rb") as fin:
         input_string = get_sequence_between_newlines(
@@ -930,24 +930,15 @@ def mask_nuc_range(input_fasta: str, input_table: str, output_fasta: str) -> Non
             out_f.write(f">{current_id}\n{current_seq}\n")
 
 
-def read_fasta_needletail(fasta_file):
-    seqs = []
-    seq_ids = []
-    for record in parse_fastx_file(fasta_file):
-        seqs.append(record.seq)
-        seq_ids.append(record.id)
-    return seq_ids, seqs
-
-
 def read_fasta_polars(
     fasta_file, idcol="seq_id", seqcol="seq", add_length=False, add_gc_content=False
 ):
     seq_ids, seqs = read_fasta_needletail(fasta_file)
     df = pl.DataFrame({idcol: seq_ids, seqcol: seqs})
     if add_length:
-        df = df.with_columns(pl.col(seqcol).str.len().alias("length"))
+        df = df.with_columns(pl.col(seqcol).str.len_chars().alias("length")) # type: ignore
     if add_gc_content:
-        df = df.with_columns(pl.col(seqcol).str.count("G|C").alias("gc_content"))
+        df = df.with_columns(pl.col(seqcol).str.count_matches("G|C").alias("gc_content") / pl.col(seqcol).str.len_chars().alias("length")) 
     return df
 
 
@@ -1033,11 +1024,11 @@ def read_fasta_df(file_path: str) -> pl.DataFrame:
 
     """
 
-    # First read the raw sequences using scan_fastx
-    raw_df = pl.LazyFrame.fastx.scan(file_path).collect()
+    # First read the raw sequences using the registered from_fastx namespace
+    raw_df = pl.LazyFrame.from_fastx.init(file_path).collect() # type: ignore defined above
 
-    # Create header column from identifier
-    df = raw_df.with_columns([pl.col("identifier").alias("header"), pl.col("sequence")])
+    # The from_fastx namespace already returns header and sequence columns
+    df = raw_df
 
     # Drop quality column if it exists
     if "quality" in df.columns:
@@ -1082,24 +1073,24 @@ def rename_sequences(
             - Dictionary mapping old IDs to new IDs
     """
 
-    id_map = {}
-    new_headers = []
+    if use_hash:
+        # Use polars expressions for hash generation
+        df_with_hashes = df.with_columns(
+            pl.col("sequence").seq.generate_hash().alias("seq_hash")
+        )
+        new_headers = [f"{prefix}_{h}" for h in df_with_hashes["seq_hash"]]
+    else:
+        # Calculate padding based on total number of sequences
+        padding = len(str(len(df)))
+        new_headers = [f"{prefix}_{str(i + 1).zfill(padding)}" for i in range(len(df))]
 
-    # Calculate padding based on total number of sequences
-    padding = len(str(len(df)))
-
-    for i, (header, seq) in enumerate(zip(df["header"], df["sequence"])):
-        if use_hash:
-            new_id = f"{prefix}_{seq.seq.generate_hash()}"
-        else:
-            new_id = f"{prefix}_{str(i + 1).zfill(padding)}"
-        id_map[header] = new_id
-        new_headers.append(new_id)
+    # Create mapping dictionary
+    id_map = dict(zip(df["header"], new_headers))
 
     return df.with_columns(pl.Series("header", new_headers)), id_map
 
 
-def process_sequences(df: pl.DataFrame, structure: bool = False) -> pl.DataFrame:
+def process_sequences(df: pl.DataFrame) -> pl.DataFrame:
     """Process sequences and calculate statistics.
 
     Args:
@@ -1113,36 +1104,11 @@ def process_sequences(df: pl.DataFrame, structure: bool = False) -> pl.DataFrame
     # Calculate basic stats
     df = df.with_columns(
         [
-            pl.col("sequence").seq.length().alias("length"),
-            pl.col("sequence").seq.gc_content().alias("gc_content"),
-            pl.col("sequence").seq.n_count().alias("n_count"),
+            pl.col("sequence").str.len_chars().alias("length"),
+            pl.col("sequence").str.count_matches("G|C").alias("gc_content") / pl.col("sequence").str.len_chars().alias("length"),
+            pl.col("sequence").str.count_matches("N").alias("n_count"),
         ]
     )
-
-    # Calculate RNA structure stats if requested
-    if structure:
-        df = df.with_columns(
-            [pl.col("sequence").rna.predict_structure().alias("rna_struct")]
-        )
-        df = df.with_columns(
-            [
-                pl.col("rna_struct").struct.field("structure").alias("structure"),
-                pl.col("rna_struct").struct.field("mfe").alias("mfe"),
-                (pl.col("rna_struct").struct.field("mfe") / pl.col("length")).alias(
-                    "mfe_per_nt"
-                ),
-            ]
-        ).drop("rna_struct")
-
-    # Calculate codon usage for valid sequences
-    codon_df = (
-        df.filter(pl.col("sequence").seq.is_valid_codon())
-        .with_columns(pl.col("sequence").seq.codon_usage().alias("codons"))
-        .unnest("codons")
-    )
-
-    if len(codon_df) > 0:
-        df = df.join(codon_df.select(pl.exclude("sequence")), on="header", how="left")
 
     return df
 
@@ -1678,7 +1644,7 @@ def hmmdb_from_directory(
 
             # Set gathering threshold if provided
             if gath_col in info.columns:
-                hmm.cutoffs.gathering = this_gath, this_gath
+                hmm.cutoffs.gathering = (float(this_gath), float(this_gath))
             # write the hmm to a file
             # hmms.append(hmm)
             fh = open(temp_dir / f"{msa.name.decode()}.hmm", "wb")
@@ -1737,8 +1703,8 @@ def populate_pldf_withseqs_needletail(
     # Reset file iterator
     index = 0
     for record in parse_fastx_file(seqfile):
-        seqs.append(record.seq)
-        seq_ids.append(record.id)
+        seqs.append(record.seq) # type: ignore
+        seq_ids.append(record.id) # type: ignore
         index += 1
 
         # Process chunk when we hit chunk_size or end of file

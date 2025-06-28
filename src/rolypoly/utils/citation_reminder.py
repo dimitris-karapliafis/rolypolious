@@ -137,7 +137,7 @@ def display_citations(citations):
 
 def remind_citations(
     tools: Union[str, List[str]], return_as_text=False, return_bibtex=False
-):
+) -> Union[str, None]:
     """Display or return citation reminders for used tools"""
     from rich.text import Text
 
@@ -145,7 +145,7 @@ def remind_citations(
     citations = get_citations(tools)
     if len(citations) == 0:
         console.print(Text("No citations found for the provided tools.", style="red"))
-        return
+        return 
     else:
         console.print(
             Text(

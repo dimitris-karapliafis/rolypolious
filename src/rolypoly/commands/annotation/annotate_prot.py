@@ -5,6 +5,8 @@ from rich.console import Console
 
 from rolypoly.utils.config import BaseConfig
 from rolypoly.utils.various import run_command_comp
+from typing import Union
+import logging
 
 
 class ProteinAnnotationConfig(BaseConfig):
@@ -15,10 +17,10 @@ class ProteinAnnotationConfig(BaseConfig):
         input: Path,
         output_dir: Path,
         threads: int,
-        log_file: Path,
+        log_file: Union[Path, logging.Logger, None],
         memory: str,
-        override_params: dict[str, any] = None,
-        skip_steps: list[str] = None,
+        override_params: dict[str, object] = {},
+        skip_steps: list[str] = [],
         search_tool: str = "hmmsearch",
         domain_db: str = "Pfam",
         custom_domain_db: str = "",
@@ -217,7 +219,6 @@ def predict_orfs_with_pyrodigal(config):
         input_file=config.input,
         output_file=config.output_dir / "predicted_orfs.faa",
         threads=config.threads,
-        gv_or_else="gv",
         genetic_code=config.genetic_code,
     )
 
@@ -298,8 +299,6 @@ def search_protein_domains(config):
 
     if config.search_tool == "hmmsearch":
         search_protein_domains_hmmsearch(config, input_fasta, output_file)
-    elif config.search_tool == "hmmscan":
-        search_protein_domains_hmmscan(config, input_fasta, output_file)
     elif config.search_tool == "mmseqs2":
         search_protein_domains_mmseqs2(config, input_fasta, output_file)
     elif config.search_tool == "DIAMOND":

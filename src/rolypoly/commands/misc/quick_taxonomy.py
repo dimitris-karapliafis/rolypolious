@@ -5,7 +5,8 @@ from rich.console import Console
 
 from rolypoly.utils.citation_reminder import remind_citations
 
-# console = Console()
+from rich.console import Console
+console = Console()
 
 
 def parse_marker_results(marker_file):
@@ -223,7 +224,7 @@ def quick_taxonomy(
 
     sequences = []
     for record in parse_fastx_file(input):
-        sequences.append({"id": record.id, "seq": record.seq})
+        sequences.append({"id": record.id, "seq": record.seq}) # type: ignore
 
     if not sequences:
         logger.error(f"No sequences found in {input}")
@@ -339,13 +340,13 @@ def quick_taxonomy(
 
             # Save to file
             with open(output_path / "taxonomy_assignments.txt", "w") as f:
-                console = Console(file=f)
-                console.print(assign_table)
+                file_console = Console(file=f)
+                file_console.print(assign_table)
                 if summarize:
-                    console.print("\n")
-                    console.print(summary_table)
-                    console.print("\n")
-                    console.print(dist_table)
+                    file_console.print("\n")
+                    file_console.print(summary_table)
+                    file_console.print("\n")
+                    file_console.print(dist_table)
 
     logger.info("quick-taxonomy completed successfully!")
     tools = ["HMMER", "geNomad"]

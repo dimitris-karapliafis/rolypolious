@@ -6,7 +6,6 @@ from rich_click import command, option
 
 from rolypoly.utils.various import (
     extract,
-    fetch_and_extract,
     find_most_recent_folder,
     move_contents_to_parent,
 )
@@ -55,12 +54,11 @@ def get_data(info, rolypoly_data, log_file):
     from rolypoly.utils.loggit import setup_logging, get_version_info
     logger = setup_logging(log_file)
 
-
     # Load configuration first
-    config_path = pt(resources.files("rolypoly")) / "rpconfig.json"
+    config_path = str(resources.files("rolypoly") / "rpconfig.json")
     
-    if config_path.exists():
-        with config_path.open("r") as f:
+    if os.path.exists(config_path):
+        with open(config_path, "r") as f:
             config = json.load(f)
     else:
         config = {"ROLYPOLY_DATA": ""}
@@ -73,7 +71,7 @@ def get_data(info, rolypoly_data, log_file):
         return 0
 
     if rolypoly_data == None:
-        ROLYPOLY_DATA = pt(resources.files("rolypoly")) / "data"
+        ROLYPOLY_DATA = pt(str(resources.files("rolypoly"))) / "data"
     else:
         ROLYPOLY_DATA = pt(os.path.abspath(rolypoly_data))
 

@@ -15,22 +15,22 @@ class RVirusSearchConfig(BaseConfig):
         output_path.mkdir(parents=True, exist_ok=True)
 
         super().__init__(
-            input=kwargs.get("input"),
-            output=kwargs.get("output"),
-            keep_tmp=kwargs.get("keep_tmp"),
+            input=kwargs.get("input", ""),
+            output=kwargs.get("output", ""),
+            keep_tmp=kwargs.get("keep_tmp", False),
             log_file=kwargs.get("log_file"),
-            threads=kwargs.get("threads"),
-            memory=kwargs.get("memory"),
-            config_file=kwargs.get("config_file"),
-            overwrite=kwargs.get("overwrite"),
-            log_level=kwargs.get("log_level"),
-            temp_dir=kwargs.get("temp_dir"),
+            threads=kwargs.get("threads", 1),
+            memory=kwargs.get("memory", "3gb"),
+            config_file=kwargs.get("config_file", None),
+            overwrite=kwargs.get("overwrite", False),
+            log_level=kwargs.get("log_level", "INFO"),
+            temp_dir=kwargs.get("temp_dir", "marker_search_tmp/"),
         )  # initialize the BaseConfig class
         # initialize the rest of the parameters (i.e. the ones that are not in the BaseConfig class)
-        self.database = kwargs.get("database")
-        self.inc_evalue = kwargs.get("inc_evalue") or 0.05
-        self.score = kwargs.get("score") or 20
-        self.aa_method = kwargs.get("aa_method") or "six_frame"
+        self.database = kwargs.get("database", "NeoRdRp_v2.1,genomad")
+        self.inc_evalue = kwargs.get("inc_evalue", 0.05)
+        self.score = kwargs.get("score", 20)
+        self.aa_method = kwargs.get("aa_method", "six_frame")
         self.resolve_mode = kwargs.get("resolve_mode") or "simple"
         self.min_overlap_positions = kwargs.get("min_overlap_positions") or 10
         self.name = kwargs.get("name") or None
@@ -303,7 +303,7 @@ def marker_search(
             # if it's a directory:
             elif Path(custom_database).is_dir():
                 # cehck if all files are hmm
-                if all(f.endswith((".hmm")) for f in Path(custom_database).glob("*")):
+                if all(f.suffix == ".hmm" for f in Path(custom_database).glob("*")):
                     # concatenate all hmms into one file
                     hmm_files = Path(custom_database).glob("*.hmm")
                     with open(Path(custom_database) / "concatenated.hmm", "w") as f:
@@ -312,7 +312,7 @@ def marker_search(
                                 f.write(hmm_file_obj.read())
                     database_paths = {"Custom": str(Path(custom_database) / "concatenated.hmm")}
                 elif all(
-                    f.endswith((".faa", ".fasta", ".afa"))
+                    f.suffix in [".faa", ".fasta", ".afa"]
                     for f in Path(custom_database).glob("*")
                 ):
                     from rolypoly.utils.fax import hmmdb_from_directory
@@ -320,7 +320,7 @@ def marker_search(
                     hmmdb_from_directory(
                         msa_dir=custom_database,
                         output=Path(custom_database) / "all_msa_built.hmm",
-                        alphabet="aa",
+                        # alphabet="aa",
                     )
                     database_paths = {"Custom": str(Path(custom_database) / "all_msa_built.hmm")}
             else:
@@ -403,7 +403,7 @@ def marker_search(
             merge=False,
             split=False,
             column_specs="query_full_name,hmm_full_name",
-            rank_columns="-full_hmm_score,+full_hmm_evalue",
+            rank_columns="-full_hmm_score,+full_hmm_evalue,-pcov",
             drop_contained=True,
         )
 
@@ -455,7 +455,7 @@ def marker_search(
     tools.append("hmmer")
 
     with open(f"{config.log_file}", "w") as f_out:
-        f_out.write(remind_citations(tools, return_bibtex=True))
+        f_out.write(remind_citations(tools, return_bibtex=True) or "")
 
 if __name__ == "__main__":
-    marker_search
+    marker_search()

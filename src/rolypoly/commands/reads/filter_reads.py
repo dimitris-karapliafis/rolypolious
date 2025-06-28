@@ -2,7 +2,7 @@ import glob
 import os
 import shutil
 from pathlib import Path
-from typing import Dict, Tuple, Union
+from typing import Dict, Tuple, Union, TypedDict
 
 import rich_click as click
 from rich.console import Console
@@ -20,6 +20,11 @@ output_tracker = OutputTracker()
 console = Console()
 
 
+class FileInfo(TypedDict):
+    R1_R2_pairs: list[tuple[str, str]]
+    interleaved_files: list[str]
+
+
 class ReadFilterConfig(BaseConfig):
     def __init__(self, **kwargs):
         # in this case output_dir and output are the same, so need to explicitly make sure it exists.
@@ -28,30 +33,30 @@ class ReadFilterConfig(BaseConfig):
         #     Path(kwargs.get("output")).mkdir(parents=True, exist_ok=True)
 
         super().__init__(
-            input=kwargs.get("input"),
-            output=kwargs.get("output"),
-            temp_dir=kwargs.get("temp_dir"),
-            keep_tmp=kwargs.get("keep_tmp"),
-            log_file=kwargs.get("log_file"),
-            threads=kwargs.get("threads"),
-            memory=kwargs.get("memory"),
-            config_file=kwargs.get("config_file"),
-            overwrite=kwargs.get("overwrite"),
-            log_level=kwargs.get("log_level"),
+            input=kwargs.get("input") or "",
+            output=kwargs.get("output") or "",
+            temp_dir=kwargs.get("temp_dir") or "",
+            keep_tmp=kwargs.get("keep_tmp") or False,
+            log_file=kwargs.get("log_file") or None,
+            threads=kwargs.get("threads") or 1,
+            memory=kwargs.get("memory") or "6gb",
+            config_file=kwargs.get("config_file") or None,
+            overwrite=kwargs.get("overwrite") or False,
+            log_level=kwargs.get("log_level") or "info",
         )  # initialize the BaseConfig class
         # initialize the rest of the parameters (i.e. the ones that are not in the BaseConfig class)
         self.skip_existing = kwargs.get("skip_existing") or False
         self.zip_reports = kwargs.get("zip_reports") or False
         # self.override_parameters = self.override_parameters if isinstance(self.override_parameters, dict) else eval(self.override_parameters) if isinstance(self.override_parameters, str) else {}
-        self.skip_steps = (
-            kwargs.get("skip_steps")
-            if isinstance(kwargs.get("skip_steps"), list)
-            else kwargs.get("skip_steps").split(",")
-            if isinstance(kwargs.get("skip_steps"), str)
-            else []
-        )
+        skip_steps_value = kwargs.get("skip_steps", [])
+        if isinstance(skip_steps_value, list):
+            self.skip_steps: list[str] = skip_steps_value
+        elif isinstance(skip_steps_value, str):
+            self.skip_steps = skip_steps_value.split(",") if skip_steps_value else []
+        else:
+            self.skip_steps = []
         self.known_dna = (
-            Path(kwargs.get("known_dna")).resolve()
+            Path(kwargs.get("known_dna") or "").resolve()
             if kwargs.get("known_dna") is not None
             else None
         )
@@ -60,7 +65,7 @@ class ReadFilterConfig(BaseConfig):
         self.override_parameters = (
             kwargs.get("override_parameters")
             if isinstance(kwargs.get("override_parameters"), dict)
-            else eval(kwargs.get("override_parameters"))
+            else eval(kwargs.get("override_parameters", "{}"))
             if isinstance(kwargs.get("override_parameters"), str)
             else {}
         )
@@ -98,13 +103,13 @@ class ReadFilterConfig(BaseConfig):
             "quality_trim_unmerged": {"qtrim": "rl", "trimq": 5, "minlen": 45},
         }
         self.max_genomes = (
-            kwargs.get("max_)") or 25
+            kwargs.get("max_genomes") or 25
         )  # maximum number of potential host genomes to fetch
         if kwargs.get("override_parameters") is not None:
             self.logger.info(
                 f"override_parameters: {kwargs.get('override_parameters')}"
             )
-            for step, params in kwargs.get("override_parameters").items():
+            for step, params in kwargs.get("override_parameters", {}).items():
                 if step in self.step_params:
                     self.step_params[step].update(params)
                 else:
@@ -124,11 +129,10 @@ def check_existing_file(output_file: Path, min_size: int = 20) -> bool:
 
 def process_reads(
     config: ReadFilterConfig, output_tracker: OutputTracker
-) -> OutputTracker:
+) -> Union[OutputTracker, None]:
     """Main function to orchestrate the preprocessing steps."""
     import signal
-
-    from rich.spinner import SPINNERS, Spinner
+    from rich.spinner import SPINNERS, Spinner # type: ignore
 
     config.logger.info(f"Checking dependencies    ")
     base_dir = Path(config.temp_dir)
@@ -161,7 +165,7 @@ def process_reads(
     ]
 
     current_input = fastq_file
-    from rich.spinner import SPINNERS, Spinner
+    from rich.spinner import SPINNERS, Spinner # type: ignore
 
     SPINNERS["myspinner"] = {"interval": 2500, "frames": ["🦠 ", "🧬 ", "🔬 "]}
 
@@ -398,7 +402,7 @@ def filter_reads(
 
     global config
     if config_file is not None:
-        config = ReadFilterConfig.load(config_file)
+        config = ReadFilterConfig.read(config_file)
     else:
         config = ReadFilterConfig(
             threads=threads,
@@ -440,7 +444,7 @@ def filter_reads(
 
     config.logger.info(f"Read processing completed, probably successfully.")
     with open(f"{config.log_file}", "w") as f_out:
-        f_out.write(remind_citations(tools, return_bibtex=True))
+        f_out.write(remind_citations(tools, return_bibtex=True) or "")
 
 
 def generate_reports(file_name: str, threads: int, skip_existing: bool, logger):
@@ -477,7 +481,7 @@ def generate_reports(file_name: str, threads: int, skip_existing: bool, logger):
 
 def identify_read_pair_files_in_folder(
     input: Union[str, Path],
-) -> Dict[str, list[Path]]:
+) -> Union[FileInfo, None]:
     """Identify if the input is paired end or single end."""
     import glob
 
@@ -532,8 +536,8 @@ def handle_input_fastq(config: ReadFilterConfig) -> tuple[Path, str]:
             file_info = {"R1_R2_pairs": [], "interleaved_files": [config.input]}
     else:
         input_files = str(config.input).split(",")
-        input_files = [Path(f.strip()).resolve() for f in input_files]
-        file_info = {"R1_R2_pairs": [input_files], "interleaved_files": []}
+        input_files = [f.strip() for f in input_files]  # Keep as strings
+        file_info = {"R1_R2_pairs": [(input_files[0], input_files[1])], "interleaved_files": []}
 
     # Process paired-end files
     if len(file_info["R1_R2_pairs"]) != 0:
@@ -714,6 +718,13 @@ def decontaminate_rrna(
 def fetch_and_mask_genomes(config: ReadFilterConfig) -> Union[str, Path]:
     """Fetch and mask genomes."""
     from rolypoly.utils.fax import fetch_genomes, mask_dna
+
+    # Create a dedicated subfolder for fetched genomes using absolute paths
+    fetched_dna_dir = config.temp_dir / "fetched_dna" / "genomes"
+    fetched_dna_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Get absolute paths
+    abs_gbs_file = (fetched_dna_dir / "gbs_50m.fasta").absolute()
 
     if "filter_rp_identified_DNA_genomes" not in config.skip_steps:
         stats_file = Path(f"stats_decontaminate_rrna_{config.file_name}.txt").absolute()

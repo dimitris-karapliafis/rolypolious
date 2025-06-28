@@ -16,7 +16,8 @@ from genomicranges import GenomicRanges
 from iranges import IRanges
 from rolypoly.utils.various import order_columns_to_match, vstack_easy, cast_cols_to_match, order_columns_to_match
 
-# TODO: make this more robust and less dependent on external libraries.
+# TODO: make this more robust and less dependent on external libraries. Candidate destination library is polars-bio.
+
 
 
 @click.command(name="resolve_overlaps")
@@ -129,7 +130,7 @@ def consolidate_hits_rich(
     """
     tmpdf = consolidate_hits(
         input=input,
-        output=output,
+        # output=output,
         rank_columns=rank_columns,
         one_per_query=one_per_query,
         one_per_range=one_per_range,
@@ -144,6 +145,8 @@ def consolidate_hits_rich(
     else:
         return tmpdf
 
+# TODO: add tests to src/../tests/
+
 
 def consolidate_hits(
     input: Union[str, pl.DataFrame],
@@ -155,7 +158,7 @@ def consolidate_hits(
     column_specs: str = "qseqid,sseqid",
     drop_contained: bool = False,
     split: bool = False,
-):
+) -> pl.DataFrame:
     """Resolves overlaps in a tabular hit table file or polars dataframe.
     Notes: some flags are mutually exclusive, e.g. you cannot set both split and merge, or rather - if you do that, you'll get unexpected results."""
 
@@ -298,15 +301,15 @@ def consolidate_hits(
 
         # Convert to GenomicRanges for merging
         gr_hits = GenomicRanges(
-            seqnames=work_table.get_column("seqnames"),
+            seqnames=work_table.get_column("seqnames").to_list(),
             ranges=IRanges(
-                start=work_table.get_column("start"),
-                width=work_table.get_column("end") - work_table.get_column("start") + 1,
+                start=work_table.get_column("start").to_list(),
+                width=(work_table.get_column("end") - work_table.get_column("start") + 1).to_list(),
             ),
         )
 
         # Merge overlapping intervals
-        merged_ranges = gr_hits.merge(min_overlap=min_overlap_positions)
+        merged_ranges = gr_hits.find_overlaps(min_overlap=min_overlap_positions)
 
         # Process merged intervals
         results = []
@@ -382,25 +385,6 @@ def interval_tree_to_df(tree: itree.IntervalTree) -> pl.DataFrame:
     )
 
 
-def clip_intersecting_ranges(
-    range1: list[int, int], range2: list[int, int]
-) -> list[int, int]:
-    """
-    Clip the overlap of two ranges
-
-    :param range1: First range as a tuple (start, end)
-    :param range2: Second range as a tuple (start, end)
-    :return: updated a tuple of format (start,end) with range1 clipped to remove overlaps with range2.
-    Note that if range1 is nested or identical to range2, range1 is returned empty.
-    If range2 is nested in range1, up to two empty ranges are returned.
-    """
-    print(type(range1))
-    tree = itree.IntervalTree()
-    tree.addi(begin=range1[0], end=range1[1], data="range1")
-    tree.chop(range2[0], range2[1])
-    return [(start, end) for start, end, data in tree]
-
-
 def clip_overlapping_ranges_pl(
     input_df: pl.DataFrame, min_overlap: int = 0, id_col: Optional[str] = None
 ) -> pl.DataFrame:
@@ -411,8 +395,6 @@ def clip_overlapping_ranges_pl(
     :param min_overlap: Minimum overlap to consider for clipping
     :return: A DataFrame with clipped ranges. The start and end of the ranges are updated to remove the overlap, so that the first range (i.e. index of it is lower) is the one that is the one not getting clipped, and other are trimmed to not overlap with it.
     """
-    
-    
     
     df = get_all_overlaps_pl(input_df, min_overlap=min_overlap, id_col=id_col)  # type: ignore
     df = df.with_columns(
@@ -429,7 +411,7 @@ def clip_overlapping_ranges_pl(
                 all_ovl = [
                     ovl
                     for ovl in row["overlapping_intervals"]
-                    if ovl != row[id_col] and ovl not in subset_df[id_col].to_list()
+                    if ovl != row[id_col] and ovl not in subset_df[id_col].to_list() # type: ignore
                 ]
                 all_ovl_df = df.filter(pl.col(id_col).is_in(all_ovl))
                 tree = interval_tree_from_df(all_ovl_df, data_col=id_col)
@@ -546,25 +528,6 @@ def get_all_overlaps_pl(
     return input_df.with_columns(
         pl.Series(name="overlapping_intervals", values=ovl_intervals, strict=False)
     )
-
-
-# def merge_all_overlapping_intervals(input_df: pl.DataFrame, min_overlap: int = 0) -> pl.DataFrame:
-#     """
-#     Merge overlapping regions using Polars.
-
-#     :param input_df: A polars DataFrame with 'start' and 'end' columns
-#     :return: A DataFrame with merged ranges
-#     """
-#     df = get_all_envelopes_pl(input_df)
-#     df = df.with_columns(
-#         pl.col("enveloped_intervals").list.len().alias("n_enveloped")
-#     )
-#     df = df.filter(
-#         pl.col("n_enveloped") < 2
-#     )
-
-#     tree.merge_overlaps()
-#     merged_df = interval_tree_to_df(tree)
 
 
 def return_or_write(df: pl.DataFrame, output: Optional[str]):
@@ -704,175 +667,3 @@ if __name__ == "__main__":
             merge,
             column_specs,
         )
-
-    # # Create a sample polars DataFrame
-    # data = {
-    #     'start': [1, 3, 5, 7, 9, 11],
-    #     'end': [4, 6, 8, 10, 14, 13],
-    #     'id': ["a", "b", "c", "d", "e", "f"]
-    # }
-    # input_df = pl.DataFrame(data)
-
-    # df = get_all_overlaps_pl(input_df)
-    # print("Overlapping regions:")
-    # print(df)
-
-    # print("\nNested regions:")
-    # print(get_all_envelopes_pl(df))
-
-    # # Example for clip_overlap
-    # value_data = {
-    #     'position': [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
-    #     'value': [1, 3, 2, 5, 4, 6, 2, 1, 3, 4]
-    # }
-    # value_df = pl.DataFrame(value_data)
-    # print("\nClipped overlap:")
-    # print(clip_overlapping_ranges_pl(value_df, min_overlap=2))
-
-    # print("\nMerged regions:")
-    # print(merge_all_overlapping_intervals(df))
-
-    # print("\nOverlapping regions with overlap:")
-    # print(get_all_overlaps_pl(df, 2))
-
-    # test_df = generate_dummy_hit_table(1011) # type: ignore
-    # df1 = sort_hit_table(test_df, "qseqid", ["score"], [True])
-
-
-# def generate_dummy_hit_table(n: int) -> pl.DataFrame:
-#     """
-#     Generate a dummy hit table for debugging purposes.
-
-#     Args:
-#     n (int): Number of rows in the hit table.
-
-#     Returns:
-#     pl.DataFrame: A dummy hit table with n rows.
-#     """
-#     np.random.seed(42)  # For reproducibility
-
-#     # Generate random data
-#     qseqid = [f"query_{i//3}" for i in range(n)]
-#     sseqid = [f"target_{i}" for i in range(n)]
-#     qstart = np.random.randint(1, 1000, n)
-#     qend = qstart + np.random.randint(10, 200, n)
-#     score = np.random.randint(50, 1000, n)
-#     evalue = np.random.uniform(1e-10, 1e-2, n)
-
-#     # Create the DataFrame
-#     df = pl.DataFrame({
-#         "qseqid": qseqid,
-#         "sseqid": sseqid,
-#         "qstart": qstart,
-#         "qend": qend,
-#         "score": score,
-#         "evalue": evalue
-#     })
-
-#     # Sort by qseqid, qstart
-#     df = df.sort(["qseqid", "qstart"])
-
-#     return df
-
-
-# def resolve_overlaps(hit_table: pl.DataFrame, query_id_col: str, q1_col: str, q2_col: str, rank_col: str,
-#                      max_overlap_fraction: float, max_overlap_positions: int, clip: bool,
-#                      drop_unresolved: bool, merge: bool, culling_mode: str, env_mode: str) -> pl.DataFrame:
-#     """Resolve overlaps in the hit table using NumPy."""
-#     result = []
-#     for query in hit_table[query_id_col].unique():
-#         query_df = hit_table.filter(pl.col(query_id_col) == query)
-
-#         # Convert to numpy arrays for efficient operations
-#         starts = query_df[q1_col].to_numpy()
-#         ends = query_df[q2_col].to_numpy()
-#         ranks = query_df[rank_col].to_numpy()
-
-#         # Sort by start position
-#         sort_idx = np.argsort(starts)
-#         starts = starts[sort_idx]
-#         ends = ends[sort_idx]
-#         ranks = ranks[sort_idx]
-
-#         # Resolve overlaps
-#         resolved_idx = resolve_overlap_numpy(starts, ends, ranks, max_overlap_fraction, max_overlap_positions,
-#                                              clip, drop_unresolved, merge, env_mode)
-
-#         # Apply culling mode
-#         if culling_mode == "one_per_query":
-#             best_hit = np.argmax(ranks[resolved_idx])
-#             resolved_idx = resolved_idx[best_hit:best_hit+1]
-#         elif culling_mode == "one_per_range":
-#             resolved_idx = remove_overlapping_intervals_numpy(starts[resolved_idx], ends[resolved_idx], ranks[resolved_idx])
-
-#         # Add resolved hits to result
-#         result.extend(query_df.row(idx) for idx in sort_idx[resolved_idx])
-
-#     return pl.DataFrame(result)
-
-# def resolve_overlap_numpy(starts: np.ndarray, ends: np.ndarray, ranks: np.ndarray,
-#                           max_overlap_fraction: float, max_overlap_positions: int,
-#                           clip: bool, drop_unresolved: bool, merge: bool, env_mode: str) -> np.ndarray:
-#     """Resolve overlaps using NumPy operations."""
-#     n = len(starts)
-#     keep = np.ones(n, dtype=bool)
-
-#     for i in range(n):
-#         if not keep[i]:
-#             continue
-#         for j in range(i+1, n):
-#             if not keep[j]:
-#                 continue
-
-#             overlap = min(ends[i], ends[j]) - max(starts[i], starts[j])
-#             if overlap <= 0:
-#                 break  # No more overlaps possible
-
-#             min_len = min(ends[i] - starts[i], ends[j] - starts[j])
-#             if overlap > max_overlap_positions and overlap / min_len > max_overlap_fraction:
-#                 if clip:
-#                     mid = (max(starts[i], starts[j]) + min(ends[i], ends[j])) // 2
-#                     if starts[i] < starts[j]:
-#                         ends[i] = mid
-#                         starts[j] = mid + 1
-#                     else:
-#                         ends[j] = mid
-#                         starts[i] = mid + 1
-#                 elif merge:
-#                     starts[i] = min(starts[i], starts[j])
-#                     ends[i] = max(ends[i], ends[j])
-#                     ranks[i] = max(ranks[i], ranks[j])
-#                     keep[j] = False
-#                 elif drop_unresolved:
-#                     keep[i] = keep[j] = False
-#                 elif env_mode == "envelope":
-#                     if ends[i] - starts[i] >= ends[j] - starts[j]:
-#                         keep[j] = False
-#                     else:
-#                         keep[i] = False
-#                         break
-#                 elif env_mode == "letter":
-#                     if ends[i] - starts[i] <= ends[j] - starts[j]:
-#                         keep[j] = False
-#                     else:
-#                         keep[i] = False
-#                         break
-
-#     return np.where(keep)[0]
-
-# def remove_overlapping_intervals_numpy(starts: np.ndarray, ends: np.ndarray, ranks: np.ndarray) -> np.ndarray:
-#     """Remove overlapping intervals, keeping the highest ranking one in each overlap."""
-#     sorted_idx = np.argsort(-ranks)  # Sort by descending rank
-#     starts = starts[sorted_idx]
-#     ends = ends[sorted_idx]
-
-#     keep = np.ones(len(starts), dtype=bool)
-#     last_end = 0
-
-#     for i, (start, end) in enumerate(zip(starts, ends)):
-#         if start > last_end:
-#             last_end = end
-#         else:
-#             keep[i] = False
-
-#     return sorted_idx[keep]
