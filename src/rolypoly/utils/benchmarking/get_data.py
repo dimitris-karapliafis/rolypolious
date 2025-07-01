@@ -7,7 +7,7 @@ from urllib.parse import quote
 import requests
 from requests.exceptions import RequestException
 
-from rolypoly.utils.fax import download_genome
+from rolypoly.utils.bioseqs.genome_fetch import download_genome
 
 
 def download_file(url, filename):

@@ -115,10 +115,10 @@ from rolypoly.utils.loggit import setup_logging
 """)
         if packages == "all":
             f.write("""
-from rolypoly.utils.citation_reminder import remind_citations
+from rolypoly.utils.logging.citation_reminder import remind_citations
 from rolypoly.utils.various import ensure_memory
-from rolypoly.utils.loggit import log_start_info
-from rolypoly.utils.config import BaseConfig
+from rolypoly.utils.logging.loggit import log_start_info
+from rolypoly.utils.logging.config import BaseConfig
 """)
         else:
             for pkg in packages.split(","):
@@ -133,7 +133,7 @@ from rolypoly.utils.config import BaseConfig
                 if "log_start_info" in pkg:
                     f.write("from rolypoly.utils.loggit import log_start_info\n")
                 if "BaseConfig" in pkg:
-                    f.write("from rolypoly.utils.config import BaseConfig\n")
+                    f.write("from rolypoly.utils.logging.config import BaseConfig\n")
 
         f.write("\n@click.command()\n")
         if common_args == "all":

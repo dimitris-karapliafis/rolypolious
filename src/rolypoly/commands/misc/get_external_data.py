@@ -51,7 +51,7 @@ def get_data(info, rolypoly_data, log_file):
 
     import requests
 
-    from rolypoly.utils.loggit import setup_logging, get_version_info
+    from rolypoly.utils.logging.loggit import setup_logging, get_version_info
     logger = setup_logging(log_file)
 
     # Load configuration first

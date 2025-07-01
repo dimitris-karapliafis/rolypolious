@@ -25,7 +25,7 @@ console = Console()
 )
 def corrolate(input, output, threads, log_file):
     """WIP WIP WIP Corrolate identified viral sequence across samples"""
-    from rolypoly.utils.loggit import setup_logging
+    from rolypoly.utils.logging.loggit import setup_logging
 
     logger = setup_logging(log_file)
     logger.info("Starting to corrolate      ")

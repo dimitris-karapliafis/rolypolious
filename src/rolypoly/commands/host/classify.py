@@ -29,7 +29,7 @@ import rich_click as click
 )
 def predict_host_range(input, output, threads, log_file):
     """WIP WIP WIP Predict a viral seq host range - caution! this is not definitive"""
-    from rolypoly.utils.loggit import setup_logging
+    from rolypoly.utils.logging.loggit import setup_logging
 
     logger = setup_logging(log_file)
     logger.info("Starting to predict      ")

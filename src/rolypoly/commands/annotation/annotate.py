@@ -13,10 +13,10 @@ from rolypoly.commands.annotation.annotate_RNA import (
     RNAAnnotationConfig,
     process_RNA_annotations,
 )
-from rolypoly.utils.citation_reminder import remind_citations
-from rolypoly.utils.config import BaseConfig
+from rolypoly.utils.logging.citation_reminder import remind_citations
+from rolypoly.utils.logging.config import BaseConfig
 
-# from rolypoly.utils.loggit import log_start_info
+# from rolypoly.utils.logging.loggit import log_start_info
 
 console = Console(width=150)
 global tools
@@ -77,7 +77,7 @@ class AnnotationConfig(BaseConfig):
 @click.option(
     "--secondary-structure-tool",
     default="LinearFold",
-    type=click.Choice(["LinearFold", "RNAfold", "SQUARNA", "RNAstructure", "IPknot"]),
+    type=click.Choice(["LinearFold", "RNAfold"]), #, "SQUARNA", "RNAstructure", "IPknot"
     help="Tool for secondary structure prediction",
 )
 @click.option(
@@ -157,9 +157,9 @@ def annotate(
     """Functionally and structurally annotate RNA viral sequence(s) (Wrapper for annotate_prot, annotate_RNA)"""
     import json
 
-    from rolypoly.utils.loggit import log_start_info
+    from rolypoly.utils.logging.loggit import log_start_info
 
-    override_params = json.loads(override_parameters) if override_parameters else {}
+    override_parameters = json.loads(override_parameters) if override_parameters else {}
     skip_steps_list = skip_steps.split(",") if skip_steps else []
     output_path = Path(output).resolve()
 
@@ -182,7 +182,7 @@ def annotate(
         log_level=log_level,        
         log_file=config.logger,  # Pass the logger directly
         memory=memory,
-        override_params=override_params,
+        override_parameters=override_parameters,
         skip_steps=skip_steps_list,
         secondary_structure_tool=secondary_structure_tool,
         ires_tool=ires_tool,
@@ -198,7 +198,7 @@ def annotate(
         threads=threads,
         log_file=config.logger,  # Pass the logger directly
         memory=memory,
-        override_params=override_params,
+        override_parameters=override_parameters,
         skip_steps=skip_steps_list,
         gene_prediction_tool=gene_prediction_tool,
         search_tool=search_tool,

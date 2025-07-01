@@ -159,7 +159,7 @@ def run_pipeline(
     from rolypoly.commands.virotype.predict_characteristics import (
         predict_characteristics,
     )
-    from rolypoly.utils.loggit import (  # , check_file_exists, check_file_size
+    from rolypoly.utils.logging.loggit import (  # , check_file_exists, check_file_size
         log_start_info,
         setup_logging,
     )

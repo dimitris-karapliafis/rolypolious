@@ -4,7 +4,7 @@ from pathlib import Path
 
 import rich_click as click
 
-from rolypoly.utils.config import BaseConfig
+from rolypoly.utils.logging.config import BaseConfig
 
 # TODO: cleaning assembly graph directly? by mmseqs nucleic / diamond amino searching against user supplied host sequence
 # TODO: precompiled contamination DB? Masked RefSeq?
@@ -156,8 +156,8 @@ def filter_contigs(
     """
     Filter contigs based on user-supplied host sequences. Wrapper for both nucleotide and amino acid filtering.
     """
-    from rolypoly.utils.citation_reminder import remind_citations
-    from rolypoly.utils.loggit import log_start_info
+    from rolypoly.utils.logging.citation_reminder import remind_citations
+    from rolypoly.utils.logging.loggit import log_start_info
 
     output = Path(output).absolute().resolve()
     host = Path(known_dna).absolute().resolve()
@@ -232,7 +232,8 @@ def filter_contigs_nuc(config: FilterContigsConfig):
     import pyfastx
     from rich_click import Context
 
-    from rolypoly.utils.fax import ensure_faidx, mask_dna
+    from rolypoly.utils.bioseqs.masking import mask_dna
+    from rolypoly.utils.bioseqs.file_detection import ensure_faidx
     from rolypoly.utils.various import apply_filter, ensure_memory
 
     config.logger.info(f"Started nucleotide host filtering for: {config.input}")
@@ -398,7 +399,8 @@ def filter_contigs_aa(config: FilterContigsConfig):
     import pyfastx
     from bbmapy import callgenes
 
-    from rolypoly.utils.fax import ensure_faidx, guess_fasta_alpha
+    from rolypoly.utils.bioseqs.file_detection import ensure_faidx
+    from rolypoly.utils.bioseqs.sequence_analysis import guess_fasta_alpha
     from rolypoly.utils.various import apply_filter, ensure_memory
 
     config.logger.info(f"Started amino acid host filtering for: {config.input}")

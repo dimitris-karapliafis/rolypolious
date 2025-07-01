@@ -48,8 +48,8 @@ def virus_mapping(threads, memory, output, keep_tmp, db, db_path, log_file, inpu
     import shutil
     import subprocess
 
-    from rolypoly.utils.citation_reminder import remind_citations
-    from rolypoly.utils.loggit import log_start_info, setup_logging
+    from rolypoly.utils.logging.citation_reminder import remind_citations
+    from rolypoly.utils.logging.loggit import log_start_info, setup_logging
 
     # TODO: functionalize / use wrappers for mmseqs2.
     input = pt(input).absolute().resolve()

@@ -6,8 +6,8 @@ from typing import Union
 import rich_click as click
 from rich.console import Console
 
-from rolypoly.utils.citation_reminder import remind_citations
-from rolypoly.utils.config import BaseConfig
+from rolypoly.utils.logging.citation_reminder import remind_citations
+from rolypoly.utils.logging.config import BaseConfig
 from rolypoly.utils.various import ensure_memory
 
 global tools
@@ -27,7 +27,7 @@ class RNAAnnotationConfig(BaseConfig):
         log_file: Union[Path, logging.Logger, None],
         log_level: str,
         memory: str,
-        override_params: dict[str, object] = {},
+        override_parameters: dict[str, object] = {},
         skip_steps: list[str] = [],
         rnamotif_tool = None,
         secondary_structure_tool: str = "RNAfold",
@@ -75,8 +75,8 @@ class RNAAnnotationConfig(BaseConfig):
             "lightmotif": {},
             "aragorn": {"l": True},
         }
-        if override_params:
-            for step, params in override_params.items():
+        if override_parameters:
+            for step, params in override_parameters.items():
                 if step in self.step_params:
                     self.step_params[step].update(params)
                 else:
@@ -102,7 +102,7 @@ class RNAAnnotationConfig(BaseConfig):
 @click.option("-M", "--memory", default="4gb", help="Memory in GB. Example: -M 8gb")
 @click.option(
     "-op",
-    "--override_params",
+    "--override_parameters",
     "--override-parameters",
     default="{}",
     help='JSON-like string of parameters to override. Example: --override-parameters \'{"RNAfold": {"temperature": 37}, "cmscan": {"E": 1e-5}}\'',
@@ -165,7 +165,7 @@ def annotate_RNA(
     log_file,
     log_level,
     memory,
-    override_params,
+    override_parameters,
     skip_steps,
     secondary_structure_tool,
     ires_tool,
@@ -188,7 +188,7 @@ def annotate_RNA(
         log_file=log_file,
         log_level=log_level,
         memory=ensure_memory(memory)["giga"],
-        override_params=json.loads(override_params) if override_params else {},
+        override_parameters=json.loads(override_parameters) if override_parameters else {},
         skip_steps=skip_steps.split(",") if skip_steps else [],
         secondary_structure_tool=secondary_structure_tool,
         ires_tool=ires_tool,
@@ -936,7 +936,7 @@ def process_ribozymes_data(config, ribozymes_file):
         config.logger.debug(f"Raw ribozymes data from {ribozymes_file}: {raw_data}")
 
         # Normalize to minimal schema, keeping important ribozyme-specific columns
-        from rolypoly.utils.fax import create_minimal_annotation_schema
+        from rolypoly.utils.bioseqs.schema_utils import create_minimal_annotation_schema
         
         data = create_minimal_annotation_schema(
             raw_data, 
@@ -955,7 +955,7 @@ def process_ires_iresfinder(ires_file):
 
     if ires_file.is_file():
         raw_data = pl.read_csv(ires_file, separator="\t")
-        from rolypoly.utils.fax import create_minimal_annotation_schema
+        from rolypoly.utils.bioseqs.schema_utils import create_minimal_annotation_schema
         
         # Rename columns for normalization
         if "Sequence Name" in raw_data.columns:
@@ -980,7 +980,7 @@ def process_ires_irespy(ires_file):
 
     if ires_file.is_file():
         raw_data = pl.read_csv(ires_file, separator="\t")
-        from rolypoly.utils.fax import create_minimal_annotation_schema
+        from rolypoly.utils.bioseqs.schema_utils import create_minimal_annotation_schema
         
         # Rename columns for normalization
         if "Sequence Name" in raw_data.columns:
@@ -1069,7 +1069,7 @@ def process_trnas_data_tRNAscan_SE(trnas_file):
             
             if records:
                 raw_data = pl.DataFrame(records)
-                from rolypoly.utils.fax import create_minimal_annotation_schema
+                from rolypoly.utils.bioseqs.schema_utils import create_minimal_annotation_schema
                 
                 return create_minimal_annotation_schema(
                     raw_data,
@@ -1268,7 +1268,7 @@ def combine_results(config):
 
         # Combine all results using unified schema
         if all_results:
-            from rolypoly.utils.fax import ensure_unified_schema
+            from rolypoly.utils.bioseqs.schema_utils import ensure_unified_schema
             
             # Ensure all dataframes have the same schema
             unified_dataframes = ensure_unified_schema(all_results)
@@ -1305,7 +1305,7 @@ def combine_results(config):
 
 
 def write_combined_results_to_gff(config, combined_data):
-    from rolypoly.utils.fax import add_fasta_to_gff
+    from rolypoly.utils.bioseqs.sequence_io import add_fasta_to_gff
 
     output_file = config.output_dir / "combined_annotations.gff3"
     with open(output_file, "w") as f:

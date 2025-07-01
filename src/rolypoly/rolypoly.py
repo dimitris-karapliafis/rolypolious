@@ -6,7 +6,7 @@ from json import load
 import rich_click as click
 
 from .utils.lazy_group import LazyGroup
-from .utils.loggit import get_version_info
+from .utils.logging.loggit import get_version_info
 
 
 def flat_dict(d: dict[str, str]) -> str:
@@ -34,7 +34,6 @@ os.environ["citation_file"] = str(
     .joinpath("../../misc/all_used_tools_dbs_citations.json")
 )
 
-
 @click.group(
     cls=LazyGroup,
     context_settings={"help_option_names": ["-h", "--help", "-help"]},
@@ -50,7 +49,7 @@ os.environ["citation_file"] = str(
             "name": "Raw Reads Processing",
             "commands": {
                 "filter-reads": "rolypoly.commands.reads.filter_reads.filter_reads",
-                "mask-dna": "rolypoly.utils.fax.mask_dna",  # Keeping this as is since it's in utils
+                "mask-dna": "rolypoly.utils.bioseqs.masking.mask_dna",  # Keeping this as is since it's in utils
             },
         },
         "annotation": {
@@ -58,7 +57,7 @@ os.environ["citation_file"] = str(
             "commands": {
                 "annotate": "rolypoly.commands.annotation.annotate.annotate",
                 "annotate-rna": "rolypoly.commands.annotation.annotate_RNA.annotate_RNA",
-                "annotate-prot": "hidden:rolypoly.commands.annotation.annotate_prot.annotate_prot",
+                "annotate-prot": "rolypoly.commands.annotation.annotate_prot.annotate_prot",
             },
         },
         "assembly": {
@@ -77,7 +76,7 @@ os.environ["citation_file"] = str(
                 "end2end": "rolypoly.commands.misc.end_2_end.run_pipeline",
                 # "add-command": "hidden:rolypoly.commands.misc.add_command.add_command",
                 "fetch-sra": "rolypoly.commands.misc.fetch_sra_fastq.fetch_sra",  # Not  a click command (yet?)
-                "sequence-stats": "rolypoly.commands.misc.sequence_stats.sequence_stats",
+                "sequence-stats": "rolypoly.utils.bioseqs.sequence_stats.sequence_stats",
                 # "visualize": "rolypoly.commands.virotype.visualize.visualize",
                 "quick-taxonomy": "rolypoly.commands.misc.quick_taxonomy.quick_taxonomy",
                 # "test": "tests.test_cli_commands.test",

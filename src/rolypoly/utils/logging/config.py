@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 from typing_extensions import Union
 
-from rolypoly.utils.loggit import setup_logging
+from rolypoly.utils.logging.loggit import setup_logging
 
 
 class BaseConfig:

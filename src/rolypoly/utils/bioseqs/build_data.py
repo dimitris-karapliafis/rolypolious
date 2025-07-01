@@ -42,7 +42,7 @@ def build_data(data_dir, threads, log_file):
     from importlib import resources
     import requests
 
-    from rolypoly.utils.loggit import setup_logging
+    from rolypoly.utils.logging.loggit import setup_logging
 
     logger = setup_logging(log_file)
     logger.info(f"Starting data preparation to : {data_dir}")
@@ -357,10 +357,10 @@ def tar_everything_and_upload_to_NERSC(data_dir, version=""):
     import datetime
     import subprocess
     from pathlib import Path
-    from rolypoly.utils.citation_reminder import remind_citations
+    from rolypoly.utils.logging.citation_reminder import remind_citations
 
     if version == "":
-        from rolypoly.utils.loggit import get_version_info
+        from rolypoly.utils.logging.loggit import get_version_info
 
         version = get_version_info()
     with open(Path(data_dir) / "README.md", "w") as f_out:
@@ -422,7 +422,7 @@ def prepare_genomad_rna_viral_hmms(data_dir, threads, logger: logging.Logger):
 
     import polars as pl
 
-    from rolypoly.utils.fax import hmmdb_from_directory
+    from rolypoly.utils.bioseqs.pyhmm_utils import hmmdb_from_directory
 
     logger.info("Starting geNomad RNA viral HMM preparation")
 
@@ -528,6 +528,24 @@ def prepare_genomad_rna_viral_hmms(data_dir, threads, logger: logging.Logger):
         logger.error(f"Error preparing geNomad RNA viral HMMs: {e}")
         raise
 
+def prepare_vfam_hmm(data_dir, logger: logging.Logger):
+    """Prepare VFAM HMM database."""
+    fetch_and_extract(
+        "https://fileshare.csb.univie.ac.at/vog/vog230/vfam.hmm.tar.gz",
+        extract_to=os.path.join(data_dir, "hmmdbs", "vfam"),
+    )
+    # move all files in vfam/hmm to vfam/
+    for file in os.listdir(os.path.join(data_dir, "hmmdbs", "vfam", "hmm")):
+        shutil.move(os.path.join(data_dir, "hmmdbs", "vfam", "hmm", file), os.path.join(data_dir, "hmmdbs", "vfam", file))
+    # concat all the hmms and remove subdirectories
+    with open(os.path.join(data_dir, "hmmdbs", "vfam.hmm"), "w") as f_out:
+        for file in os.listdir(os.path.join(data_dir, "hmmdbs", "vfam")):
+            if file.endswith(".hmm"):
+                with open(os.path.join(data_dir, "hmmdbs", "vfam", file), "r") as f_in:
+                    f_out.write(f_in.read())
+    # remove the vfam directory
+    shutil.rmtree(os.path.join(data_dir, "hmmdbs", "vfam"))
+    logger.info(f"Created VFAM HMM database at {os.path.join(data_dir, 'hmmdbs', 'vfam.hmm')}")
 
 # setup taxonkit
 # TODO: CONVERT TO PYTHON

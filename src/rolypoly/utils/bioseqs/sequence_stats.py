@@ -2,13 +2,14 @@ from pathlib import Path
 import hashlib
 import json
 from collections import Counter
+from typing import Optional
 
 import polars as pl
 import rich_click as click
 from rich.console import Console
 
-from rolypoly.utils.citation_reminder import remind_citations
-from rolypoly.utils.fax import (
+from rolypoly.utils.logging.citation_reminder import remind_citations
+from rolypoly.utils.bioseqs.sequence_io import (
     read_fasta_df,
 )
 
@@ -102,7 +103,7 @@ def sequence_stats(
     fields,
 ):
     """Calculate sequence statistics using Polars expressions"""
-    from rolypoly.utils.loggit import log_start_info, setup_logging
+    from rolypoly.utils.logging.loggit import log_start_info, setup_logging
 
     logger = setup_logging(log_file, log_level)
     log_start_info(logger, locals())
@@ -294,3 +295,94 @@ def sequence_stats(
     remind_citations(tools)
     
     logger.info("Sequence statistics calculation completed successfully")
+
+
+# Comprehensive sequence statistics calculator with filtering and customizable output
+def fasta_stats(
+    input_file: str,
+    output_file: Optional[str] = None, # if not provided, will print to stdout
+    min_length: Optional[int] = None,
+    max_length: Optional[int] = None,
+    fields: str = "header,length,gc_content,n_count,hash,codon_usage,kmer_freq",
+    kmer_length: int = 3,
+) -> None:
+    """Calculate sequence statistics using Polars expressions
+    
+    Args:
+        input: Input file or directory
+        output: Output path
+        min_length: Minimum sequence length to consider
+        max_length: Maximum sequence length to consider
+        fields: Comma-separated list of fields to include (available: header,sequence,length,gc_content,n_count,hash,codon_usage,kmer_freq)
+    """
+    import sys
+    output_path = Path(output_file) if output_file else sys.stdout
+
+    # Read sequences into DataFrame
+    df = pl.DataFrame.from_fastx(input_file) # type: ignore
+    
+    # init_height = df.height
+    # Apply length filters
+    if min_length:
+        df = df.filter(pl.  col("sequence").seq.length() >= min_length)
+    if max_length:
+        df = df.filter(pl.col("sequence").seq.length() <= max_length)
+    # print(f"Filtered {init_height - df.height} sequences out of {init_height}")
+
+    # Define available fields and their dependencies
+    field_options = {
+        "length": {"desc": "Sequence length"},
+        "gc_content": {"desc": "GC content percentage"},
+        "n_count": {"desc": "Count of Ns in sequence"},
+        "hash": {"desc": "Sequence hash (MD5)"},
+        "codon_usage": {"desc": "Codon usage frequencies"},
+        "kmer_freq": {"desc": "K-mer frequencies"},
+        "header": {"desc": "Sequence header"},
+        "sequence": {"desc": "DNA/RNA sequence"}
+    }
+
+    # Parse fields
+    selected_fields = ["header"]
+    if fields:
+        selected_fields = [f.strip().lower() for f in fields.split(",")]
+        # Validate fields
+        valid_fields = list(field_options.keys())
+        invalid_fields = [f for f in selected_fields if f not in valid_fields]
+        if invalid_fields:
+            print(f"Unknown field(s): {', '.join(invalid_fields)}")
+            print(f"Available fields are: {', '.join(valid_fields)}")
+        selected_fields = [f for f in selected_fields if f in valid_fields]
+
+    # Build the stats expressions
+    stats_expr = []
+    # for field in selected_fields: # this doesn't work  :(
+    #     stats_expr.append(pl.col("sequence").seq.field(field).alias(field))
+    
+    if "length" in selected_fields:
+        stats_expr.append(pl.col("sequence").seq.length().alias("length"))
+    if "gc_content" in selected_fields:
+        stats_expr.append(pl.col("sequence").seq.gc_content().alias("gc_content"))
+    if "n_count" in selected_fields:
+        stats_expr.append(pl.col("sequence").seq.n_count().alias("n_count"))
+    if "hash" in selected_fields:
+        stats_expr.append(pl.col("sequence").seq.generate_hash().alias("hash")) 
+    if "codon_usage" in selected_fields:
+        stats_expr.append(pl.col("sequence").seq.codon_usage().alias("codon_usage"))
+    if "kmer_freq" in selected_fields:
+        stats_expr.append(pl.col("sequence").seq.calculate_kmer_frequencies(kmer_length).alias("kmer_freq"))
+
+    # Apply all the stats expressions
+    df = df.with_columns(stats_expr)
+    df = df.select(selected_fields)
+
+
+    # Convert all nested columns to strings
+    for col in df.columns:
+        if col != "header":  # Keep header as is
+            if isinstance(df[col].dtype, pl.Struct) or isinstance(df[col].dtype, pl.List):
+                df = df.with_columns(
+                    [pl.col(col).cast(pl.Utf8).alias(f"{col}")]
+                )
+
+    df.write_csv(output_path, separator="\t")
+    print("Successfully wrote file after converting data types")

@@ -28,7 +28,7 @@ console = Console()
 )
 def summarise(input, output, threads, log_file):
     """WIP WIP WIP Summarize RolyPoly results."""
-    from rolypoly.utils.loggit import setup_logging
+    from rolypoly.utils.logging.loggit import setup_logging
 
     logger = setup_logging(log_file)
     logger.info("Starting to summarise RolyPoly     ")

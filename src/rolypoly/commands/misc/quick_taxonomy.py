@@ -3,7 +3,7 @@ from pathlib import Path
 import rich_click as click
 from rich.console import Console
 
-from rolypoly.utils.citation_reminder import remind_citations
+from rolypoly.utils.logging.citation_reminder import remind_citations
 
 from rich.console import Console
 console = Console()
@@ -48,7 +48,7 @@ def run_genomad_hmm_search(input_fasta, output_dir, threads, logger):
 
     import polars as pl
 
-    from rolypoly.utils.fax import search_hmmdb
+    from rolypoly.utils.bioseqs.pyhmm_utils import search_hmmdb
 
     hmm_db = (
         Path(os.environ["ROLYPOLY_DATA"]) / "hmmdbs" / "genomad_rna_viral_markers.hmm"
@@ -213,7 +213,7 @@ def quick_taxonomy(
     from needletail import parse_fastx_file
     from rich.table import Table
 
-    from rolypoly.utils.loggit import log_start_info, setup_logging
+    from rolypoly.utils.logging.loggit import log_start_info, setup_logging
 
     logger = setup_logging(log_file, log_level)
     log_start_info(logger, locals())

@@ -7,8 +7,8 @@ from typing import Dict, Tuple, Union, TypedDict
 import rich_click as click
 from rich.console import Console
 
-from rolypoly.utils.config import BaseConfig
-from rolypoly.utils.output_tracker import OutputTracker
+from rolypoly.utils.logging.config import BaseConfig
+from rolypoly.utils.logging.output_tracker import OutputTracker
 from rolypoly.utils.various import ensure_memory, run_command_comp
 
 global tools
@@ -393,8 +393,8 @@ def filter_reads(
     Process RNA-seq (transcriptome, RNA virome, metatranscriptomes) Illumina raw reads.
     Removes host reads, synthetic artifacts, and unknown DNA, corrects sequencing errors, trims adapters and low quality reads.
     """
-    from rolypoly.utils.citation_reminder import remind_citations
-    from rolypoly.utils.loggit import log_start_info
+    from rolypoly.utils.logging.citation_reminder import remind_citations
+    from rolypoly.utils.logging.loggit import log_start_info
 
     if (input is None) and (config_file is None):
         click.echo("Either input or config-file must be provided.")
@@ -646,7 +646,7 @@ def filter_known_dna(
     """Filter known DNA sequences."""
     from bbmapy import bbduk
 
-    from rolypoly.utils.fax import mask_dna
+    from rolypoly.utils.bioseqs.masking import mask_dna
 
     ref_file = str(config.known_dna)
     if "mask_known_dna" not in config.skip_steps:
@@ -717,7 +717,8 @@ def decontaminate_rrna(
 
 def fetch_and_mask_genomes(config: ReadFilterConfig) -> Union[str, Path]:
     """Fetch and mask genomes."""
-    from rolypoly.utils.fax import fetch_genomes, mask_dna
+    from rolypoly.utils.bioseqs.masking import mask_dna
+    from rolypoly.utils.bioseqs.genome_fetch import fetch_genomes
 
     # Create a dedicated subfolder for fetched genomes using absolute paths
     fetched_dna_dir = config.temp_dir / "fetched_dna" / "genomes"

@@ -1,12 +1,17 @@
 from pathlib import Path
+import os
 
 import rich_click as click
 from rich.console import Console
 
-from rolypoly.utils.config import BaseConfig
+from rolypoly.utils.logging.config import BaseConfig
 from rolypoly.utils.various import run_command_comp
 from typing import Union
 import logging
+import polars as pl
+
+global output_files
+output_files = pl.DataFrame(schema={"file": pl.Utf8, "description": pl.Utf8, "db": pl.Utf8,  "tool": pl.Utf8, "params": pl.Utf8, "command": pl.Utf8})
 
 
 class ProteinAnnotationConfig(BaseConfig):
@@ -19,14 +24,14 @@ class ProteinAnnotationConfig(BaseConfig):
         threads: int,
         log_file: Union[Path, logging.Logger, None],
         memory: str,
-        override_params: dict[str, object] = {},
+        override_parameters: dict[str, object] = {},
         skip_steps: list[str] = [],
         search_tool: str = "hmmsearch",
         domain_db: str = "Pfam",
-        custom_domain_db: str = "",
         min_orf_length: int = 30,
         genetic_code: int = 11,
         gene_prediction_tool: str = "ORFfinder",
+        evalue: float = 1e-2,
         **kwargs,
     ):
         # Extract BaseConfig parameters
@@ -42,18 +47,21 @@ class ProteinAnnotationConfig(BaseConfig):
         self.skip_steps = skip_steps or []
         self.search_tool = search_tool
         self.domain_db = domain_db
-        self.custom_domain_db = custom_domain_db
         self.min_orf_length = min_orf_length
         self.genetic_code = genetic_code
         self.gene_prediction_tool = gene_prediction_tool
+        self.evalue = evalue
         self.step_params = {
-            "ORFfinder": {"minimum_length": 30},
-            "hmmsearch": {"E": 1e-5},
-            "InterProScan": {},  # TODO: decide if using InterProScan as is or if using pyhmmer on it's member dbs.
+            "ORFfinder": {"minimum_length": min_orf_length, "start_codon": 1, "strand": "both", "outfmt": 0, "ignore_nested": False},
+            "pyrodigal": {"minimum_length": min_orf_length},
+            "six-frame": {"threads": 1, "min_orf_length": min_orf_length},
+            "hmmsearch": {"inc_e": evalue, "mscore": 5},
+            "diamond": {"evalue": evalue}, 
+            "mmseqs2": {"evalue": evalue, "cov": 0.5},
         }
 
-        if override_params:
-            for step, params in override_params.items():
+        if override_parameters:
+            for step, params in override_parameters.items():
                 if step in self.step_params:
                     self.step_params[step].update(params)
                 else:
@@ -73,60 +81,97 @@ console = Console(width=150)
     help="Input directory containing rolypoly's virus identification results",
 )
 @click.option(
-    "-o", "--output-dir", default="./annotate_prot_output", help="Output directory path"
+    "-o",
+    "--output-dir",
+    default="./annotate_prot_output",
+    help="Output directory path",
 )
-@click.option("-t", "--threads", default=1, help="Number of threads")
 @click.option(
-    "-g", "--log-file", default="./annotate_prot_logfile.txt", help="Path to log file"
+    "-t",
+    "--threads",
+    default=1,
+    help="Number of threads",
 )
-@click.option("-M", "--memory", default="8gb", help="Memory in GB. Example: -M 8gb")
+@click.option(
+    "-g",
+    "--log-file",
+    default="./annotate_prot_logfile.txt", help="Path to log file"
+)
+@click.option(
+    "-M",
+    "--memory",
+    default="8gb",
+    help="Memory in GB. Example: -M 8gb",
+    hidden=True,
+)
 @click.option(
     "-op",
-    "--override-params",
     "--override-parameters",
+    "--override-params",
     default="{}",
     help='JSON-like string of parameters to override. Example: --override-parameters \'{"ORFfinder": {"minimum_length": 150}, "hmmsearch": {"E": 1e-3}}\'',
 )
 @click.option(
+    "-ss",
     "--skip-steps",
     default="",
     help="Comma-separated list of steps to skip. Example: --skip-steps ORFfinder,hmmsearch",
 )
 @click.option(
+    "-gp",
     "--gene-prediction-tool",
     default="ORFfinder",
     type=click.Choice(
-        ["ORFfinder", "pyrodigal", "six-frame", "MetaGeneAnnotator"],
+        ["ORFfinder", "pyrodigal", "six-frame"], # , "bbmap"``
         case_sensitive=False,
     ),
-    help="Tool for gene prediction",
+    help="""Tool for gene prediction. \n
+    * pyrodigal-gv: might work better for some viruses, but it's not as well tested for RNA viruses. Includes internal genetic code assignment. \n
+    * ORFfinder: The default ORFfinder settings may have some false positives, but it's fast and easy to use. \n
+    * six-frame: includes all 6 reading frames, so all possible ORFs are predicted - prediction is quick but will include many false positives, and the input for the domain search will be larger. \n
+    """,
 )
 @click.option(
+    "-st",
     "--search-tool",
     default="hmmsearch",
     type=click.Choice(
-        ["hmmsearch", "mmseqs2", "DIAMOND", "nail"], case_sensitive=False
+        ["hmmsearch", "mmseqs2", "diamond"], case_sensitive=False #, "nail"
     ),
     help="Tool/command for protein domain detection. hmmer commands are used via pyhmmer bindings",
 )
 @click.option(
+    "-d",
     "--domain-db",
-    default="Pfam",
-    type=click.Choice(
-        ["Pfam", "Vfam", "InterPro", "Phrogs", "dbCAN", "all", "none", "custom"],
-        case_sensitive=False,
-    ),
-    help="Database for domain detection",
+    default="RVMT",
+    type=str,
+    help="""Database for domain detection. \n
+    * Pfam: Pfam-A \n
+    * RVMT: RVMT \n
+    * genomad: genomad \n
+    * RefSeq_virus: RefSeq_virus \n
+    * custom: custom (path to a custom database in HMM format or a directory of MSA/hmms files) \n
+    * all: all (all databases) \n
+    """,
 )
 @click.option(
-    "--custom-domain-db",
-    default="",
-    help="Path to a custom domain database in HMM format (for use with --domain-db custom)",
+    "-ml",
+    "--min-orf-length",
+    default=30,
+    help="Minimum ORF length for gene prediction",
 )
 @click.option(
-    "--min-orf-length", default=30, help="Minimum ORF length for gene prediction"
+    "-gc",
+    "--genetic-code",
+    default=11, 
+    help="Genetic code (a.k.a. translation table) ",
 )
-@click.option("--genetic-code", default=11, help="Genetic code for ORFfinder")
+@click.option(
+    "-e",
+    "--evalue",
+    default=1e-1,
+    help="E-value for search result filtering. Note, this is for inital filteringg only, you are encouraged to filter the results further using e.g. profile coverage and scores.",
+)
 def annotate_prot(
     input,
     output_dir,
@@ -138,11 +183,20 @@ def annotate_prot(
     gene_prediction_tool,
     search_tool,
     domain_db,
-    custom_domain_db,
     min_orf_length,
-    genetic_code,  # TODO: ADD SUPPORT FOR THIS
+    genetic_code, 
+    evalue
 ):
-    """Identify coding sequences (ORFs) in a genome, and attempt to predict their translated seq (protein) function via (py)hmmsearches against a collection of DBs (or user supplied one)"""
+    """Identify coding sequences (ORFs) from fasta, and predicts their translated seqs putative function via homology search. \n
+    Currently supported tools and databases: \n
+    * Translations: ORFfinder, pyrodigal, six-frame \n
+    * Search engines: \n
+    - (py)hmmsearch: Pfam, RVMT, genomad \n
+    - mmseqs2: Pfam, RVMT, genomad \n
+    - diamond: RVMT, RefSeqvirus \n
+    * custom: user supplied database. Needs to be in tool appropriate format, or a directory of aligned fasta files (for hmmsearch) 
+    """
+    # - nail: Pfam, RVMT, genomad, custom (via nail) # TODO: add support for nail. https://github.com/TravisWheelerLab/nail
     import json
 
     from rolypoly.utils.various import ensure_memory
@@ -153,33 +207,35 @@ def annotate_prot(
         threads=threads,
         log_file=log_file,
         memory=ensure_memory(memory)["giga"],
-        override_parameters=json.loads(override_parameters)
-        if override_parameters
-        else {},
+        override_parameters=json.loads(override_parameters) if override_parameters else {},
         skip_steps=skip_steps.split(",") if skip_steps else [],
         search_tool=search_tool,
         domain_db=domain_db,
-        custom_domain_db=custom_domain_db,
         min_orf_length=min_orf_length,
         gene_prediction_tool=gene_prediction_tool,
         genetic_code=genetic_code,
+        evalue=evalue,
     )
 
+    # config.logger.info(f"Using {config.search_tool} for domain search")
     try:
         process_protein_annotations(config)
     except Exception as e:
         console.print(f"An error occurred during protein annotation: {str(e)}")
         raise
 
-
 def process_protein_annotations(config):
     """Process protein annotations"""
     config.logger.info("Starting protein annotation process")
+    # create a "raw_out" subdirectory in output folder
+    raw_out_dir = config.output_dir / "raw_out"
+    raw_out_dir.mkdir(parents=True, exist_ok=True)
+    config.logger.debug(f"created raw_out directory: {raw_out_dir}")
 
     steps = [
         predict_orfs,  # i.e. call genes
         search_protein_domains,
-        predict_protein_function,
+        combine_results,
     ]
 
     for step in steps:
@@ -190,8 +246,8 @@ def process_protein_annotations(config):
         else:
             config.logger.info(f"Skipping step: {step_name}")
 
-    combine_results(config)
     config.logger.info("Protein annotation process completed successfully")
+    output_files.write_csv(config.output_dir / "output_files.tsv", separator="\t")
 
 
 def predict_orfs(config):
@@ -202,9 +258,6 @@ def predict_orfs(config):
         predict_orfs_with_pyrodigal(config)
     elif config.gene_prediction_tool == "six-frame":
         predict_orfs_with_six_frame(config)
-    elif config.gene_prediction_tool == "MetaGeneAnnotator":
-        config.logger.info("MetaGeneAnnotator not implemented yet")
-        # predict_orfs_with_metagenannotator(config)
     else:
         config.logger.info(
             f"Skipping ORF prediction as {config.gene_prediction_tool} is not supported"
@@ -213,40 +266,170 @@ def predict_orfs(config):
 
 def predict_orfs_with_pyrodigal(config):
     """Predict ORFs using pyrodigal"""
-    from rolypoly.utils.fax import pyro_predict_orfs
+    from rolypoly.utils.bioseqs import pyro_predict_orfs
 
+    output_file = config.output_dir / "raw_out" / "predicted_orfs.faa"
     pyro_predict_orfs(
         input_file=config.input,
-        output_file=config.output_dir / "predicted_orfs.faa",
+        output_file=output_file,
         threads=config.threads,
-        genetic_code=config.genetic_code,
+        # genetic_code=config.step_params["pyrodigal"]["genetic_code"],
+        min_gene_length=config.step_params["pyrodigal"]["min_orf_length"],
     )
+    global output_files
+    output_files = output_files.vstack(pl.DataFrame({"file": [str(output_file)], "description": ["predicted ORFs"], "db": ["pyrodigal"], "tool": ["pyrodigal"], "params": [str(config.step_params["pyrodigal"])], "command": [f"pyrodigal via pyrodigal module: genetic_code={config.step_params['pyrodigal']['genetic_code']}, threads={config.threads}"]}))
+    return output_file
 
 
 def predict_orfs_with_six_frame(config):
     """Translate 6-frame reading frames of a DNA sequence using seqkit."""
-    from rolypoly.utils.fax import translate_6frx_seqkit
+    from rolypoly.utils.bioseqs.translation import translate_6frx_seqkit
 
-    output_file = str(config.output_dir / "predicted_orfs.faa")
+    output_file = str(config.output_dir / "raw_out" / "predicted_orfs.faa")
     translate_6frx_seqkit(str(config.input), output_file, config.threads)
+    global output_files
+    output_files = output_files.vstack(pl.DataFrame({"file": [output_file], "description": ["predicted ORFs"], "db": ["six-frame"], "tool": ["six-frame"], "params": [str(config.step_params["six-frame"])], "command": [f"ext. call seqkit: seqkit -w0 translate -j {config.threads} {config.input} > {output_file}"]}))
     return output_file
 
 
-def search_protein_domains_hmmscan(config):
-    """Search protein domains using hmmscan."""
-    from rolypoly.utils.fax import search_hmmdb
+def get_database_paths(config, tool_name):
+    """Get database paths for the specified tool with validation"""
+    import os
+    
+    hmmdbdir = Path(os.environ["ROLYPOLY_DATA"]) / "hmmdbs"
+    mmseqs2_dbdir = Path(os.environ["ROLYPOLY_DATA"]) / "mmseqs2"
+    diamond_dbdir = Path(os.environ["ROLYPOLY_DATA"]) / "diamond"
+    
+    # Database paths for different tools
+    DB_PATHS = {
+        "hmmsearch": {
+            "RVMT".lower(): hmmdbdir / "RVMT/NVPC.hmm",
+            "Pfam".lower(): hmmdbdir / "pfam/Pfam-A.hmm",
+            "genomad".lower(): hmmdbdir / "genomad.hmm",
+            "vfam".lower(): hmmdbdir / "vfam.hmm",
+        },
+        "mmseqs2": {
+            "RVMT".lower(): mmseqs2_dbdir / "RVMT/NVPC.hmm",  # mmseqs2 can use HMM profiles
+            "Pfam".lower(): mmseqs2_dbdir / "pfamA37.hmm",
+            "genomad".lower(): mmseqs2_dbdir / "genomad.hmm",
+        },
+        "diamond": {
+            "RVMT".lower(): diamond_dbdir / "RVMT/RVMT_proteins.dmnd",  # Diamond needs .dmnd format
+            "RefSeq_virus".lower(): diamond_dbdir / "RefSeq_virus.dmnd",
+        }
+    }
+    
+    if tool_name not in DB_PATHS:
+        config.logger.warning(f"No predefined databases for tool {tool_name}")
+        return {}
+    
+    tool_db_paths = DB_PATHS[tool_name]
+    
+    if config.domain_db == "all":
+        database_paths = tool_db_paths
+    elif config.domain_db.startswith("/") or config.domain_db.startswith("./"):
+        custom_database = str(Path(config.domain_db).resolve())
+        if not Path(custom_database).exists():
+            config.logger.error(f"Custom database path {custom_database} does not exist")
+            return {}
+        
+        # Handle custom database files and directories (mainly for hmmsearch)
+        if tool_name == "hmmsearch":
+            # check if a file it's an hmm or an msa file
+            if custom_database.endswith(".hmm"):
+                database_paths = {"Custom": custom_database}
+            elif custom_database.endswith((".faa", ".fasta", ".afa")):
+                from rolypoly.utils.bioseqs.pyhmm_utils import hmm_from_msa
 
-    search_hmmdb(
-        config.input,
-        config.domain_db,
-        config.output_dir / "protein_domains.tsv",
-        output_format="modomtblout",
-        threads=config.threads,
-        logger=config.logger,
-        match_region=True,
-        full_qseq=True,
-        ali_str=True,
-    )
+                database_paths = {
+                    "Custom": hmm_from_msa(
+                        msa_file=config.domain_db,
+                        output=config.domain_db.replace(".faa", ".hmm"),
+                        name=Path(config.domain_db).stem,
+                    )
+                }
+            # if it's a directory:
+            elif Path(custom_database).is_dir():
+                # check if all files are hmm
+                if all(f.suffix == ".hmm" for f in Path(custom_database).glob("*")):
+                    # concatenate all hmms into one file
+                    hmm_files = Path(custom_database).glob("*.hmm")
+                    with open(Path(custom_database) / "concatenated.hmm", "w") as f:
+                        for hmm_file in hmm_files:
+                            with open(hmm_file, "r") as hmm_file_obj:
+                                f.write(hmm_file_obj.read())
+                    database_paths = {"Custom": str(Path(custom_database) / "concatenated.hmm")}
+                elif all(
+                    f.suffix in [".faa", ".fasta", ".afa"]
+                    for f in Path(custom_database).glob("*")
+                ):
+                    from rolypoly.utils.bioseqs.pyhmm_utils import hmmdb_from_directory
+
+                    hmmdb_from_directory(
+                        msa_dir=custom_database,
+                        output=Path(custom_database) / "all_msa_built.hmm",
+                        # alphabet="aa",
+                    )
+                    database_paths = {"Custom": str(Path(custom_database) / "all_msa_built.hmm")}
+                else:
+                    config.logger.error(f"Invalid custom database path: {custom_database}")
+                    return {}
+            else:
+                config.logger.error(f"Invalid custom database path: {custom_database}")
+                return {}
+        else:
+            # For other tools, just use the path as is
+            database_paths = {"Custom": custom_database}
+    else:
+        requested_dbs = config.domain_db.split(",")
+        database_paths = {}
+        for db in requested_dbs:
+            db_key = db.lower()
+            if db_key in tool_db_paths:
+                database_paths[db] = tool_db_paths[db_key]
+            else:
+                config.logger.warning(f"Database '{db}' is not supported for {tool_name}. Supported databases: {', '.join(tool_db_paths.keys())}")
+    
+    return database_paths
+
+
+
+
+
+def search_protein_domains_hmmsearch(config):
+    """Search protein domains using hmmsearch."""
+    from rolypoly.utils.bioseqs.pyhmm_utils import search_hmmdb , hmmdb_from_directory, hmm_from_msa
+
+    # Use the standard ORF prediction output location
+    translation_output = config.output_dir / "raw_out" / "predicted_orfs.faa"
+    if not translation_output.exists():
+        config.logger.error(f"Translation output not found: {translation_output}. Make sure ORF prediction step completed successfully.")
+        return
+
+    # Get database paths
+    database_paths = get_database_paths(config, "hmmsearch")
+    if not database_paths:
+        return
+
+    global output_files
+    config.logger.info(f"Using {', '.join(database_paths.keys())} for domain search")
+    for db in database_paths.keys():
+        config.logger.info(f"Searching {db} for domains")
+        search_hmmdb(
+            amino_file=translation_output,
+            db_path=database_paths[db],
+            output=config.output_dir / f"{db}_protein_domains.tsv",
+            output_format="modomtblout",
+            threads=config.threads,
+            logger=config.logger,
+            match_region=True,
+            full_qseq=True,
+            ali_str=True,
+            inc_e=config.step_params["hmmsearch"]["inc_e"],
+            mscore=config.step_params["hmmsearch"]["mscore"],
+        )
+        output_files = output_files.vstack(pl.DataFrame({"file": [str(config.output_dir / f"{db}_protein_domains.tsv")], "description": [f"protein domains for {db}"], "db": [db], "tool": ["hmmsearch"], "params": [str(config.step_params["hmmsearch"])], "command": [f"builtin via pyhmmer bindings: hmmsearch -E {config.step_params['hmmsearch']['inc_e']} -m {config.step_params['hmmsearch']['mscore']} {database_paths[db]} {translation_output}"]}))
+        config.logger.info(f"Finished searching {db} for domains")
 
 
 def predict_orfs_with_orffinder(config):
@@ -255,6 +438,7 @@ def predict_orfs_with_orffinder(config):
     from shutil import which
 
     from rolypoly.utils.various import run_command_comp
+    from rolypoly.utils.bioseqs.translation import predict_orfs_orffinder
 
     if not which("ORFfinder"):
         config.logger.error(
@@ -276,201 +460,178 @@ def predict_orfs_with_orffinder(config):
 
     config.logger.info("Predicting ORFs")
     input_fasta = Path(config.input)
-    output_file = config.output_dir / "predicted_orfs.faa"
-
-    run_command_comp(
-        "ORFfinder",
-        params={
-            "in": str(input_fasta),
-            "out": str(output_file),
-            "ml": config.min_orf_length,
-            "s": config.genetic_code,
-            "n": "true",
-            "outfmt": 0,
-        },
-        logger=config.logger,
+    output_file = config.output_dir / "raw_out" / "predicted_orfs.faa"
+    predict_orfs_orffinder(
+        input_fasta=config.input,
+        output_file=config.output_dir / "raw_out" / "predicted_orfs.faa",
+        genetic_code=config.genetic_code,
+        min_orf_length=config.step_params["ORFfinder"]["minimum_length"],
+        start_codon=config.step_params["ORFfinder"]["start_codon"],
+        strand=config.step_params["ORFfinder"]["strand"],
+        outfmt=config.step_params["ORFfinder"]["outfmt"],
+        ignore_nested=config.step_params["ORFfinder"]["ignore_nested"],
     )
-
+    global output_files
+    output_files = output_files.vstack(pl.DataFrame({"file": [str(output_file)], "description": ["predicted ORFs"], "db": ["ORFfinder"], "tool": ["ORFfinder"], "params": [str(config.step_params["ORFfinder"])], "command": [f"ORFfinder -m {config.step_params['ORFfinder']['minimum_length']} -s {config.step_params['ORFfinder']['start_codon']} -l {config.step_params['ORFfinder']['strand']} -o {output_file} {config.input}"]}))
 
 def search_protein_domains(config):
     config.logger.info("Searching for protein domains")
-    input_fasta = config.output_dir / "predicted_orfs.faa"
-    output_file = config.output_dir / "protein_domains.out"
 
     if config.search_tool == "hmmsearch":
-        search_protein_domains_hmmsearch(config, input_fasta, output_file)
+        search_protein_domains_hmmsearch(config)
     elif config.search_tool == "mmseqs2":
-        search_protein_domains_mmseqs2(config, input_fasta, output_file)
-    elif config.search_tool == "DIAMOND":
-        search_protein_domains_diamond(config, input_fasta, output_file)
+        search_protein_domains_mmseqs2(config)
+    elif config.search_tool == "diamond":
+        search_protein_domains_diamond(config)
     else:
         config.logger.info(
             f"Skipping protein domain search as {config.search_tool} is not supported"
         )
 
-
-def search_protein_domains_hmmsearch(config, input_fasta, output_file):
-    """Search protein domains using hmmsearch."""
-    run_command_comp(
-        "hmmsearch",
-        params={"cpu": config.threads, "tblout": output_file},
-        positional_args=[str(config.domain_db), str(input_fasta)],
-        logger=config.logger,
-    )
-
-
-def search_protein_domains_mmseqs2(config, input_fasta, output_file):
+def search_protein_domains_mmseqs2(config):
     """Search protein domains using mmseqs2."""
-    run_command_comp(
-        "mmseqs",
-        positional_args=[
-            "easy-search",
-            str(input_fasta),
-            str(config.domain_db),
-            str(output_file),
-            str(config.output_dir / "tmp"),
-        ],
-        params={"threads": config.threads},
-        logger=config.logger,
-    )
+    
+    # Use the standard ORF prediction output location
+    translation_output = config.output_dir / "raw_out" / "predicted_orfs.faa"
+    if not translation_output.exists():
+        config.logger.error(f"Translation output not found: {translation_output}. Make sure ORF prediction step completed successfully.")
+        return
 
+    # Get database paths
+    database_paths = get_database_paths(config, "mmseqs2")
+    if not database_paths:
+        return
 
-def search_protein_domains_diamond(config, input_fasta, output_file):
+    global output_files
+    config.logger.info(f"Using {', '.join(database_paths.keys())} for domain search")
+    for db_name, db_path in database_paths.items():
+        config.logger.info(f"Searching {db_name} for domains")
+        output_file = config.output_dir / f"{db_name}_mmseqs2_domains.tsv"
+        run_command_comp(
+            "mmseqs",
+            positional_args=[
+                "easy-search",
+                str(translation_output),
+                str(db_path),
+                str(output_file),
+                str(config.output_dir / "tmp"),
+            ],
+            params={"threads": config.threads, "e": config.step_params["mmseqs2"]["evalue"], "c": config.step_params["mmseqs2"]["cov"]},
+            logger=config.logger,
+        )
+        output_files = output_files.vstack(pl.DataFrame({"file": [str(output_file)], "description": [f"protein domains for {db_name}"], "db": [db_name], "tool": ["mmseqs2"], "params": [str(config.step_params["mmseqs2"])], "command": [f"ext. call mmseqs2: mmseqs easy-search {translation_output} {db_path} {output_file} {config.output_dir / 'tmp'} -t {config.threads} -e {config.step_params['mmseqs2']['evalue']} -c {config.step_params['mmseqs2']['cov']}"]}))
+        config.logger.info(f"Finished searching {db_name} for domains")
+
+def search_protein_domains_diamond(config):
     """Search protein domains using DIAMOND."""
-    run_command_comp(
-        "diamond",
-        positional_args=["blastp"],
-        params={
-            "query": str(input_fasta),
-            "db": str(config.domain_db),
-            "out": str(output_file),
-            "threads": config.threads,
-            "outfmt": 6,
-        },
-        logger=config.logger,
-    )
+    
+    # Use the standard ORF prediction output location
+    translation_output = config.output_dir / "raw_out" / "predicted_orfs.faa"
+    if not translation_output.exists():
+        config.logger.error(f"Translation output not found: {translation_output}. Make sure ORF prediction step completed successfully.")
+        return
 
+    # Get database paths
+    database_paths = get_database_paths(config, "diamond")
+    if not database_paths:
+        return
 
-def predict_protein_function(config):
-    config.logger.info("Predicting protein function")
-    # TODO: decide how this should be done
-
+    global output_files
+    config.logger.info(f"Using {', '.join(database_paths.keys())} for domain search")
+    for db_name, db_path in database_paths.items():
+        config.logger.info(f"Searching {db_name} for domains")
+        output_file = config.output_dir / f"{db_name}_diamond_domains.tsv"
+        run_command_comp(
+            "diamond",
+            positional_args=["blastp"],
+            params={
+                "query": str(translation_output),
+                "db": str(db_path),
+                "out": str(output_file),
+                "threads": config.threads,
+                "outfmt": 6,
+                "evalue": config.step_params["diamond"]["evalue"],
+            },
+            logger=config.logger,
+        )
+        output_files = output_files.vstack(pl.DataFrame({"file": [str(output_file)], "description": [f"protein domains for {db_name}"], "db": [db_name], "tool": ["diamond"], "params": [str(config.step_params["diamond"])], "command": [f"ext. call diamond: diamond blastp -d {db_path} -q {translation_output} -o {output_file} -t {config.threads} -e {config.step_params['diamond']['evalue']}"]}))
+        config.logger.info(f"Finished searching {db_name} for domains")
 
 def combine_results(config):
     import polars as pl
 
     config.logger.info("Combining annotation results")
 
-    orf_file = config.output_dir / "predicted_orfs.faa"
-    domain_file = config.output_dir / "protein_domains.out"
+    # Get translation output files
+    translation_files = output_files.filter(
+        pl.col("description").str.contains("predicted ORFs")
+    )
+    
+    # Get domain search output files
+    domain_files = output_files.filter(
+        pl.col("description").str.contains("protein domains")
+    )
+    
+    if translation_files.height == 0:
+        config.logger.error("No translation files found for combining results")
+        return
+    
+    if domain_files.height == 0:
+        config.logger.warning("No domain search files found for combining results")
+        # Still create a summary with just translation info
+        translation_summary = translation_files.select([
+            "file", "description", "db", "tool", "params", "command"
+        ])
+        output_file = config.output_dir / "annotation_results_summary.csv"
+        translation_summary.write_csv(output_file)
+        config.logger.info(f"Translation summary written to {output_file}")
+        return
 
-    orf_data = process_orf_data(orf_file)
-    domain_data = process_domain_data(domain_file, config.search_tool)
-
-    combined_data = pl.join(orf_data, domain_data, on="orf_id", how="left")
-
+    # Create a comprehensive summary of all results
+    all_results = pl.concat([translation_files, domain_files])
+    
+    # Add metadata about the analysis
+    analysis_summary = pl.DataFrame({
+        "analysis_type": ["protein_annotation"] * all_results.height,
+        "timestamp": [pl.datetime.now()] * all_results.height,
+        "input_file": [str(config.input)] * all_results.height,
+        "output_dir": [str(config.output_dir)] * all_results.height,
+    })
+    
+    # Combine everything
+    combined_results = pl.concat([all_results, analysis_summary], how="horizontal")
+    
+    # Write comprehensive results
     output_file = config.output_dir / "combined_protein_annotations.csv"
-    combined_data.write_csv(output_file)
+    combined_results.write_csv(output_file)
+    
+    # Also create a simpler summary focusing on the domain search results
+    if domain_files.height > 0:
+        domain_summary = domain_files.select([
+            "file", "description", "db", "tool"
+        ]).with_columns([
+            pl.col("file").map_elements(lambda x: Path(x).name, return_dtype=pl.Utf8).alias("filename"),
+            pl.lit("Domain search results").alias("result_type")
+        ])
+        
+        domain_summary_file = config.output_dir / "domain_search_summary.csv"
+        domain_summary.write_csv(domain_summary_file)
+        config.logger.info(f"Domain search summary written to {domain_summary_file}")
 
     config.logger.info(f"Combined annotation results written to {output_file}")
-
-
-def process_orf_data(orf_file):
-    import polars as pl
-
-    # Process the ORF file and return a DataFrame
-    orf_data = pl.read_csv(
-        orf_file,
-        separator="\t",
-        columns=[
-            "orf_id",
-            "orf_start",
-            "orf_end",
-            "orf_length",
-            "orf_score",
-            "orf_e_value",
-            "orf_frame",
-            "orf_direction",
-            "orf_description",
-        ],
-    )
-    return orf_data
-
-
-def process_domain_data(domain_file, search_tool):
-    import polars as pl
-
-    if search_tool == "hmmsearch":
-        return process_hmmsearch_data(domain_file)
-    elif search_tool == "mmseqs2":
-        return process_mmseqs2_data(domain_file)
-    elif search_tool == "DIAMOND":
-        return process_diamond_data(domain_file)
-    else:
-        return pl.DataFrame()
-
-
-def process_hmmsearch_data(domain_file):
-    import polars as pl
-
-    df = pl.read_csv(
-        domain_file,
-        separator="\t",
-        columns=[
-            "orf_id",
-            "orf_start",
-            "orf_end",
-            "orf_length",
-            "orf_score",
-            "orf_e_value",
-            "orf_frame",
-            "orf_direction",
-            "orf_description",
-        ],
-    )
-    return df
-
-
-def process_mmseqs2_data(domain_file):
-    import polars as pl
-
-    df = pl.read_csv(
-        domain_file,
-        separator="\t",
-        columns=[
-            "orf_id",
-            "orf_start",
-            "orf_end",
-            "orf_length",
-            "orf_score",
-            "orf_e_value",
-            "orf_frame",
-            "orf_direction",
-            "orf_description",
-        ],
-    )
-    return df
-
-
-def process_diamond_data(domain_file):
-    import polars as pl
-
-    df = pl.read_csv(
-        domain_file,
-        separator="\t",
-        columns=[
-            "orf_id",
-            "orf_start",
-            "orf_end",
-            "orf_length",
-            "orf_score",
-            "orf_e_value",
-            "orf_frame",
-            "orf_direction",
-            "orf_description",
-        ],
-    )
-    return df
+    config.logger.info(f"Total files processed: {all_results.height}")
+    
+    # Log summary statistics
+    translation_count = translation_files.height
+    domain_count = domain_files.height
+    config.logger.info(f"Translation files: {translation_count}")
+    config.logger.info(f"Domain search files: {domain_count}")
+    
+    # Log which tools and databases were used
+    tools_used = all_results.select("tool").unique().to_series().to_list()
+    dbs_used = all_results.select("db").unique().to_series().to_list()
+    config.logger.info(f"Tools used: {', '.join(tools_used)}")
+    config.logger.info(f"Databases used: {', '.join(dbs_used)}")
 
 
 if __name__ == "__main__":

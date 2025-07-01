@@ -8,10 +8,10 @@ from rich.console import Console
 console = Console()
 
 
-def modify_params(default_params: Dict, override_params: Dict) -> Dict:
+def modify_params(default_params: Dict, override_parameters: Dict) -> Dict:
     """Modify default parameters with user-specified overrides"""
     params = default_params.copy()
-    params.update(override_params)
+    params.update(override_parameters)
     return params
 
 
@@ -369,12 +369,12 @@ def check_file_size(file_path):
         console.print(f"File '{file_path}' size is {file_size}")
 
 
-def is_file_empty(file_path):
+def is_file_empty(file_path, size_threshold=28):
     if not Path(file_path).exists():
         console.print(f"[bold red]File '{file_path}' does not exist.[/bold red]")
         return True
     file_size = Path(file_path).stat().st_size
-    return file_size < 28  # 28b is around the size of an empty <long-name>fastq.gz file
+    return file_size < size_threshold  # 28b is around the size of an empty <long-name>fastq.gz file
 
 
 def run_command(
@@ -413,48 +413,6 @@ def check_file_exist_isempty(file_path):
             f"[green]File '{file_path}' size is {Path(file_path).stat().st_size} bytes (not empty). [/green]"
         )
         return True
-
-
-def create_output_dataframe():
-    # for output tracking
-    import polars as pl
-
-    return pl.DataFrame(
-        schema={
-            "filename": pl.Utf8,
-            "absolute_path": pl.Utf8,
-            "command_name": pl.Utf8,
-            "cmd": pl.Utf8,
-            "file_type": pl.Utf8,
-            "file_size": pl.UInt32,
-        }
-    )
-
-
-def add_output_file(df, filename, command_name, command, file_type):
-    """Add a new output file record to the tracking DataFrame.
-    Args:
-        filename (str): Name of the output file
-        command_name (str): Name of the command that created the file
-        command (str): Full command used to create the file
-        file_type (str): Type of file (e.g., "fasta", "fastq")
-    """
-    import polars as pl
-
-    absolute_path = os.path.abspath(filename)
-    file_size = os.path.getsize(absolute_path)
-
-    new_row = pl.DataFrame(
-        {
-            "filename": [filename],
-            "absolute_path": [absolute_path],
-            "command_name": [command_name],
-            "command": [command],
-            "file_type": [file_type],
-            "file_size": [file_size],
-        }
-    )
-    return pl.concat([df, new_row])
 
 
 def read_fwf(filename, widths, columns, dtypes, comment_prefix=None, **kwargs):
@@ -521,33 +479,6 @@ def get_file_type(filename: str) -> str:
     }
 
     return file_types.get(ext, "unknown")
-
-
-def update_output_files(df, new_filename, command_name, command):
-    """Update output tracking DataFrame with a new file."""
-    file_type = get_file_type(new_filename)
-    return add_output_file(df, new_filename, command_name, command, file_type)
-
-
-def get_latest_output(df, file_type=None):
-    """Get the filename of the most recently added output file.
-
-    Args:
-        df (polars.DataFrame): Output tracking DataFrame
-        file_type (str, optional): Filter by file type.
-
-    Returns:
-        str: Filename of the most recent output file
-
-    """
-    import polars as pl
-
-    if file_type:
-        filtered_df = df.filter(pl.col("file_type") == file_type)
-    else:
-        filtered_df = df
-
-    return filtered_df.tail(1)["filename"][0]
 
 
 def order_columns_to_match(df1_to_order, df2_to_match):
@@ -620,7 +551,8 @@ def run_command_comp(
     param_sep: str = " ",
     assign_operator: str = " ",
     resource_monitoring: bool = False,
-) -> bool:
+    return_final_cmd: bool = False,
+) -> Union[bool, str]:
     """Run a command with mixed parameter styles, with resource monitoring, and output verification. comp is abbrev for comprehensive,complex,complicated,complicated-ass, compounding.
 
     Args:
@@ -644,6 +576,7 @@ def run_command_comp(
 
     Returns:
         bool: True if command succeeded and output verification passed
+        str: The final command that was run (if return_final_cmd is True)
     """
     import subprocess
     import sys
@@ -734,5 +667,7 @@ def run_command_comp(
         return False
     if check_output:
         return check_file_exist_isempty(output_file)
+    if return_final_cmd:
+        return cmd_str
     else:
         return True

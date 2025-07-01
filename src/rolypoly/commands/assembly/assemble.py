@@ -5,8 +5,8 @@ from typing import Dict, Tuple, Union
 
 import rich_click as click
 
-from rolypoly.utils.config import BaseConfig
-from rolypoly.utils.loggit import log_start_info
+from rolypoly.utils.logging.config import BaseConfig
+from rolypoly.utils.logging.loggit import log_start_info
 
 global tools
 tools = []
@@ -53,14 +53,14 @@ class AssemblyConfig(BaseConfig):
             if isinstance(kwargs.get("skip_steps", ""), str)
             else []
         )
-        override_params = (
+        override_parameters = (
             json.loads(kwargs.get("override_parameters", "{}"))
             if kwargs.get("override_parameters", "{}")
             else {}
         )
-        if override_params:
-            self.logger.info(f"override_parameters: {override_params}")
-            for step, params in override_params.items():
+        if override_parameters:
+            self.logger.info(f"override_parameters: {override_parameters}")
+            for step, params in override_parameters.items():
                 if step in self.step_params:
                     self.step_params[step].update(params)
                 else:
@@ -459,15 +459,15 @@ def assembly(
     overwrite,
     log_level,
 ):
-    """Assembly wrapper - takes in reads, assembles them using one or more assemblers, then performs post-assembly processing (rmdup, linclust, or none).
-    """
+    """Assembly wrapper - takes in reads, assembles them using one or more assemblers, then performs post-assembly processing."""
     import shutil
 
     import polars as pl
     from bbmapy import bbmap
 
-    from rolypoly.utils.citation_reminder import remind_citations
-    from rolypoly.utils.fax import process_sequences, read_fasta_df, rename_sequences
+    from rolypoly.utils.logging.citation_reminder import remind_citations
+    from rolypoly.utils.bioseqs.sequence_io import read_fasta_df
+    from rolypoly.utils.bioseqs.sequence_analysis import process_sequences, rename_sequences
     from rolypoly.utils.various import run_command_comp
 
     if not overwrite:

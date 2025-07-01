@@ -2,7 +2,7 @@
 
 # import rich_click as click
 
-# from rolypoly.utils.citation_reminder import remind_citations
+# from rolypoly.utils.logging.citation_reminder import remind_citations
 
 
 # def parse_annotations(annotation_file):
@@ -237,7 +237,7 @@
 #     import matplotlib.pyplot as plt
 #     from needletail import parse_fastx_file
 
-#     from rolypoly.utils.loggit import log_start_info, setup_logging
+#     from rolypoly.utils.logging.loggit import log_start_info, setup_logging
 
 #     logger = setup_logging(log_file, log_level)
 #     log_start_info(logger, locals())

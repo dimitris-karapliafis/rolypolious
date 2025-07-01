@@ -38,7 +38,7 @@ def refinement(input, reads, output, threads, memory, variant_caller, log_file):
     """
     Refine assembly by de-entangling strains and rerunning assembly - post host removal.
     """
-    from rolypoly.utils.loggit import setup_logging
+    from rolypoly.utils.logging.loggit import setup_logging
 
     logger = setup_logging(log_file)
     logger.info("Starting assembly refinement process")

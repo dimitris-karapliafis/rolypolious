@@ -28,7 +28,7 @@ def main(input: str, output: str, mapping: str, prefix: str, hash: bool, stats: 
     """
     import polars as pl
 
-    from rolypoly.utils.fax import process_sequences, read_fasta_df, rename_sequences
+    from rolypoly.utils.bioseqs import process_sequences, read_fasta_df, rename_sequences
 
     # Read input FASTA
     console.print(f"Reading sequences from {input}")

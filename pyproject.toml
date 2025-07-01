@@ -98,7 +98,6 @@ build-pypi = "hatch version micro && hatch build --clean"
 [tool.pixi.feature.test.tasks]
 test-import = "python -c 'import rolypoly; print(rolypoly.__version__)'"
 
-
 [tool.ruff]
 exclude = [
     ".bzr",
@@ -127,9 +126,11 @@ exclude = [
     "node_modules",
     "site-packages",
     "venv",
+    ".pixi/",
+    "tests"    
 ]
 
-line-length = 88
+line-length = 120
 indent-width = 4
 target-version = "py39"
 
@@ -143,21 +144,31 @@ dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
 line-ending = "auto"
 
 
-[tool.basedpyright]
-include = ["src", "src/rolypoly"]
-exclude = ["**/node_modules",
-    "**/__pycache__",
-    "src/experimental",
-    "src/typestubs",
-    ".pixi",
-    "**/.*/",
-]
-ignore = ["src/rolypoly/tests",]
-defineConstant = { DEBUG = false }
-reportUnknownVariableType = "none"
-reportUnknownArgumentType = "none"
-reportMissingParameterType = "none"
-typeCheckingMode = "basic"
-reportArgumentType = "none"
-reportOptionalMemberAccess = "none"
-reportReturnType = "none"
+# [tool.basedpyright]
+# include = [
+#     "src",
+#     "src/rolypoly",
+#     "src/rolypoly/utils",
+#     "src/rolypoly/commands",
+#     "src/rolypoly/utils/logging",
+#     "src/rolypoly/utils/bioseqs/"
+# ]
+# exclude = ["**/node_modules",
+#     "**/__pycache__",
+#     ".pixi",
+#     "**/.*/",
+#     "src/rolypoly/tests/*.py",
+#     "src/rolypoly/utils/benchmarking/*.py",
+# ]
+# defineConstant = { DEBUG = false }
+# reportUnknownVariableType = "none"
+# reportUnknownParameterType = "none"
+# reportUnknownArgumentType = "none"
+# reportMissingParameterType = "none"
+# typeCheckingMode = "basic"
+# reportArgumentType = "none"
+# reportOptionalMemberAccess = "none"
+# reportReturnType = "none"
+# reportAttributeAccessIssue = "none"
+# reportGeneralTypeIssues = "warning"
+# allowedUntypedLibraries = ["polars","needletail","pyhmmer"] # seems basedpyright is having issues sourcing stubs from rust based libraries ?
