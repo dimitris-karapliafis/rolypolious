@@ -7,28 +7,20 @@ import rich_click as click
 
 from .utils.lazy_group import LazyGroup
 from .utils.logging.loggit import get_version_info
+from .utils.various import flat_dict
 
-
-def flat_dict(d: dict[str, str]) -> str:
-    return "\n".join([f"{k}: {v}" for k, v in d.items()])
-
-# Configure rich_click for nice formatting
 click.rich_click.USE_RICH_MARKUP = True
 click.rich_click.GROUP_ARGUMENTS_OPTIONS = True
 click.rich_click.SHOW_ARGUMENTS = True
 click.rich_click.GROUP_ARGUMENTS_OPTIONS = True
-# click.rich_click.STYLE_COMMANDS_LIST = "bold cyan"
-# click.rich_click.STYLE_COMMANDS_TABLE_BOX = "round"
-# click.rich_click.STYLE_COMMANDS_TABLE_SHOW_LINES = True
 click.rich_click.STYLE_COMMANDS_TABLE_PAD_EDGE = True
 click.rich_click.STYLE_COMMANDS_TABLE_PADDING = (0, 2)
-# click.rich_click.STYLE_OPTIONS_TABLE_SHOW_LINES = True
 
-# load config
+# load rolypoly config
 with resources.files("rolypoly").joinpath("rpconfig.json").open("r") as conff:
     config = load(conff)
 data_dir = config["ROLYPOLY_DATA"]
-os.environ["ROLYPOLY_DATA"] = data_dir
+os.environ["ROLYPOLY_DATA"] = data_dir # export to env just in case
 os.environ["citation_file"] = str(
     resources.files("rolypoly")
     .joinpath("../../misc/all_used_tools_dbs_citations.json")
@@ -36,7 +28,7 @@ os.environ["citation_file"] = str(
 
 @click.group(
     cls=LazyGroup,
-    context_settings={"help_option_names": ["-h", "--help", "-help"]},
+    context_settings={"help_option_names": ["-h", "--help", "-help", "--hepl"]},
     lazy_subcommands={
         "data": {
             "name": "Setup and Data",
@@ -101,7 +93,7 @@ os.environ["citation_file"] = str(
         },
     },
 )
-@click.version_option(version=flat_dict(get_version_info()), prog_name="rolypoly")
+@click.version_option(version=flat_dict(get_version_info(),sep="\n"), prog_name="rolypoly")
 def rolypoly():
     """RolyPoly: RNA Virus analysis tookit.\n
     Use rolypoly `command` --help for more details \n"""

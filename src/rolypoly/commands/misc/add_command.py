@@ -111,7 +111,7 @@ def add_command(
     with open(command_file, "w") as f:
         # Write imports
         f.write(f"""import rich_click as click
-from rolypoly.utils.loggit import setup_logging
+from rolypoly.utils.logging.loggit import setup_logging
 """)
         if packages == "all":
             f.write("""
@@ -131,7 +131,7 @@ from rolypoly.utils.logging.config import BaseConfig
                 if "ensure_memory" in pkg:
                     f.write("from rolypoly.utils.various import ensure_memory\n")
                 if "log_start_info" in pkg:
-                    f.write("from rolypoly.utils.loggit import log_start_info\n")
+                    f.write("from rolypoly.utils.logging.loggit import log_start_info\n")
                 if "BaseConfig" in pkg:
                     f.write("from rolypoly.utils.logging.config import BaseConfig\n")
 
