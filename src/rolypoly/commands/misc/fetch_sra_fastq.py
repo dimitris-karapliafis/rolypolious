@@ -4,7 +4,9 @@ from pathlib import Path
 import requests
 import rich_click as click
 
-from rolypoly.utils.various import console, run_command_comp
+from rolypoly.utils.various import run_command_comp
+from rolypoly.utils.logging.loggit import setup_logging
+logger = setup_logging(None)
 
 
 def get_downloader():
@@ -14,14 +16,12 @@ def get_downloader():
     elif shutil.which("wget"):
         return "wget"
     else:
-        console.print(
-            "[bold red]Neither aria2c nor wget found. Please install one of them.[/bold red]"
-        )
+        logger.error("Neither aria2c nor wget found. Please install one of them.")
         raise SystemExit(1)
 
 
 def download_fastq(run_id, output_path):
-    """Download FASTQ files for a given SRA run ID from ENA.
+    """Download FASTQ files for a given SRA run ID from **ENA**.
 
     Uses the ENA API to fetch FASTQ file URLs and downloads them using aria2c or wget.
     Handles both single-end and paired-end data (multiple FASTQ files).
@@ -45,7 +45,7 @@ def download_fastq(run_id, output_path):
         # Parse the TSV response
         lines = content.strip().split("\n")
         if len(lines) < 2:
-            console.print(f"[yellow]No data found for {run_id}[/yellow]")
+            logger.warning(f"No data found for {run_id}")
             return
 
         # Get headers and data
@@ -54,7 +54,7 @@ def download_fastq(run_id, output_path):
         file_info = dict(zip(headers, data))
 
         if "fastq_ftp" not in file_info or not file_info["fastq_ftp"]:
-            console.print(f"[yellow]No FASTQ files found for {run_id}[/yellow]")
+            logger.warning(f"No FASTQ files found for {run_id}")
             return
 
         urls = file_info["fastq_ftp"].split(";")
@@ -71,7 +71,7 @@ def download_fastq(run_id, output_path):
         ]
 
         if not urls:
-            console.print(f"[yellow]No valid URLs found for {run_id}[/yellow]")
+            logger.warning(f"No valid URLs found for {run_id}")
             return
 
         downloader = get_downloader()
@@ -83,9 +83,9 @@ def download_fastq(run_id, output_path):
             # Show file info if available
             if i < len(sizes) and sizes[i]:
                 size_mb = float(sizes[i]) / (1024 * 1024)
-                console.print(f"[blue]Downloading {filename} ({size_mb:.1f} MB)[/blue]")
+                logger.info(f"Downloading {filename} ({size_mb:.1f} MB)")
             else:
-                console.print(f"[blue]Downloading {filename}[/blue]")
+                logger.info(f"Downloading {filename}")
 
             # Download file using the appropriate tool
             if downloader == "aria2c":
@@ -123,26 +123,22 @@ def download_fastq(run_id, output_path):
                     with open(output_file, "rb") as f:
                         actual_md5 = hashlib.md5(f.read()).hexdigest()
                     if actual_md5 == expected_md5:
-                        console.print(
-                            f"[green]Downloaded and verified: {filename}[/green]"
-                        )
+                        logger.info(f"Downloaded and verified: {filename}")
                     else:
-                        console.print(
-                            f"[red]Warning: MD5 mismatch for {filename}[/red]"
-                        )
-                        console.print(f"[red]Expected: {expected_md5}[/red]")
-                        console.print(f"[red]Got: {actual_md5}[/red]")
+                        logger.error(f"Warning: MD5 mismatch for {filename}")
+                        logger.error(f"Expected: {expected_md5}")
+                        logger.error(f"Got: {actual_md5}")
                 else:
-                    console.print(f"[green]Downloaded: {filename}[/green]")
+                    logger.info(f"Downloaded: {filename}")
             else:
-                console.print(f"[red]Failed to download {filename} for {run_id}[/red]")
+                logger.error(f"Failed to download {filename} for {run_id}")
 
     except requests.exceptions.RequestException as e:
-        console.print(f"[red]Error fetching information for {run_id}:[/red]")
-        console.print(f"[red]{str(e)}[/red]")
+        logger.error(f"Error fetching information for {run_id}:")
+        logger.error(str(e))
     except Exception as e:
-        console.print(f"[red]Unexpected error processing {run_id}:[/red]")
-        console.print(f"[red]{str(e)}[/red]")
+        logger.error(f"Unexpected error processing {run_id}:")
+        logger.error(str(e))
 
 
 def download_xml(run_id, output_path):
@@ -166,13 +162,13 @@ def download_xml(run_id, output_path):
         response.raise_for_status()
         with open(output_file, "wb") as f:
             f.write(response.content)
-        console.print(f"[green]Downloaded XML: {output_file}[/green]")
+        logger.info(f"Downloaded XML: {output_file}")
     except requests.exceptions.RequestException as e:
-        console.print(f"[red]Failed to download XML for {run_id}:[/red]")
-        console.print(f"[red]{str(e)}[/red]")
+        logger.error(f"Failed to download XML for {run_id}:")
+        logger.error(str(e))
     except Exception as e:
-        console.print(f"[red]Error saving XML for {run_id}:[/red]")
-        console.print(f"[red]{str(e)}[/red]")
+        logger.error(f"Error saving XML for {run_id}:")
+        logger.error(str(e))
 
 
 @click.command()
@@ -186,24 +182,26 @@ def download_xml(run_id, output_path):
 @click.option(
     "-o",
     "--output-dir",
-    required=True,
+    default="./",
     type=click.Path(file_okay=False, dir_okay=True, path_type=Path),
     help="Directory to save downloaded files",
 )
 @click.option("--report", is_flag=True, help="Download XML report for each run")
 def fetch_sra(input, output_dir, report):
-    """Download SRA run FASTQ files and optional XML metadata.
+    """Download SRA run FASTQ files and optional XML metadata from *ENA*
 
     Takes either a single SRA run ID (e.g., SRR12345678) or a file containing multiple run IDs (one per line).
     Downloads FASTQ files and optionally XML metadata reports to the specified output directory.
 
     Example usage:
-    \b
+    \n
     # Download single run:
     rolypoly fetch-sra -i SRR12345678 -o output_dir
 
     # Download multiple runs with metadata:
     rolypoly fetch-sra -i run_ids.txt -o output_dir --report
+
+    * Note: The fastq headers may vary for the same SRA run/expriemtn based on the source and fetching method (s3, ftp, ena...)
     """
 
     # Validate input
@@ -212,7 +210,7 @@ def fetch_sra(input, output_dir, report):
         with open(input, "r") as f:
             run_ids = [line.strip() for line in f if line.strip()]
         if not run_ids:
-            console.print("[red]Error: Input file is empty[/red]")
+            logger.error("Error: Input file is empty")
             return
     else:
         run_ids = [input]
