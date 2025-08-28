@@ -187,7 +187,7 @@ def from_gff_eager(gff_file: Union[str, Path],unnest_attributes: bool = False) -
 #  sequence statistics calculator with filtering 
 def fasta_stats(
     input_file: str,
-    output_file: Optional[str] = None, # if not provided, will print to stdout
+    output_file: Optional[str] = None, # 
     min_length: Optional[int] = None,
     max_length: Optional[int] = None,
     fields: str = "header,sequence,length,gc_content,n_count,hash",
@@ -361,11 +361,54 @@ def least_rotation(s: str) -> str:
 # df = lf.collect()
 # print(df.head())
 
-# """
-# Schema utilities for annotation data (mostly gff).
-# TODO: check the coordinate system for GFF3 is 1-based (if not then shift all coordinates by 1)
-# """ 
+####################################################################################
+#### output fastx/q files from polars dataframes/lazyframes
+def frame_to_fastx(frame: Union[pl.LazyFrame,pl.DataFrame], output_file: Union[str, Path], seq_col:str = "sequence", header_col: str = "header", qual_col: Optional[str] = None):
+    """Write a fastx file from a polars dataframe/lazyframe.    
+    Args:
+        frame: polars dataframe/lazyframe
+        output_file: path to output file
+        seq_col: name of the column containing the sequence
+        header_col: name of the column containing the header
+        qual_col: name of the column containing the quality scores (optional)
+    Returns:
+        None
+    Note:
+        if the input is a lazyframe, the output will be written in streaming mode using sink_csv - I'm not sure this is very robust in case the file exists already / has other stuff.
+    """
+    if qual_col:
+        prefix = "@"
+    else:
+        prefix = ">"
 
+    add_prefix = (pl.lit(prefix) + pl.col(header_col)).alias(header_col)
+    if qual_col:
+        add_sep=pl.lit("+").alias("sep")
+        add_prefix = [add_prefix ,add_sep]
+        expr2_select =(pl.col([header_col,seq_col,"sep",qual_col]))
+    else:
+        expr2_select =(pl.col([header_col,seq_col]))
+    
+    frame = frame.with_columns(add_prefix).select(expr2_select)
+    # write out- for lazy will try to use sink 
+    if isinstance(frame, pl.LazyFrame):
+        frame.sink_csv(output_file,
+        include_header=False,
+        separator="\n",
+        quote_style="never",
+        engine="streaming"
+        )
+    else:
+        frame.write_csv(output_file,
+        include_header=False,
+        separator="\n",
+        quote_style="never",
+        # engine="streaming"
+        )
+    
+
+####################################################################################
+#### Schema utilities for annotation data (mostly gff).
 def normalize_column_names(df):
     """Normalize common column name variations to standard names.
     
@@ -449,7 +492,7 @@ def create_minimal_annotation_schema(df, annotation_type, source, tool_specific_
     
     # Define minimal required columns with defaults
     minimal_schema = {
-        'sequence_id': pl.Utf8,
+        'sequence_id': pl.Utf8, # TODO: check if "seqid" is preferred over "chrom" or "sequence_id"
         'type': pl.Utf8, 
         'start': pl.Int64,
         'end': pl.Int64,
@@ -459,7 +502,7 @@ def create_minimal_annotation_schema(df, annotation_type, source, tool_specific_
         'phase': pl.Utf8
     }
     
-    # Add missing columns with appropriate defaults
+    # Add missing columns with appropriate defaults (null is .)
     for col, dtype in minimal_schema.items():
         if col not in df.columns:
             if col == 'type':
