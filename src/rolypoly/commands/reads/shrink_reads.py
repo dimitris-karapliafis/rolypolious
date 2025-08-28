@@ -1,21 +1,19 @@
 import os
-import shutil
 from pathlib import Path
-from typing import Union
 import rich_click as click
 
 from rolypoly.utils.logging.loggit import log_start_info, setup_logging
 from rolypoly.utils.bio.library_detection import handle_input_fastq, create_sample_file
 
-
-
-@click.command(no_args_is_help=True)
+@click.command(
+        name="shrink_reads",
+        no_args_is_help=True)
 @click.option(
     "-i",
     "-in",
     "--input",
     required=False,
-    help="""Input raw reads file(s) or directory containing them. For paired-end reads, you can provide an interleaved file or the R1 and R2 files separated by comma.""",
+    help="""Input raw reads file(s) or directory containing them. For paired-end reads, you can provide an interleaved file or the R1 and R2 files separated by comma."""
 )
 @click.option(
     "-o",
@@ -24,31 +22,21 @@ from rolypoly.utils.bio.library_detection import handle_input_fastq, create_samp
     hidden=True,
     default=os.getcwd(),
     type=click.Path(),
-    help="path to output directory",
+    help="path to output directory"
 )
 @click.option(
     "-st",
-    "-sty",
     "--subset_type",
     default="top_reads",
     type=click.Choice(["top_reads", "random"]),
     help="how to sample reads from input."
 )
 @click.option(
-    "-s",
-    "-smp",
+    "-sz",
     "--sample_size",
     default=1000,
-    type=Union[int, float],
+    type=click.FLOAT,
     help="Will only return (at most) this much reads (if <1, will be interpreted as a proportion of total reads, else as the exact number of reads to get)")
-@click.option(
-    "-t",
-    "--threads",
-    default=1,
-    type=int,
-    hidden=True,
-    help="Number of threads to use. Example: -t 4",
-)
 @click.option(
     "-g",
     "--log-file",
@@ -68,7 +56,7 @@ def shrink_reads(
     output,
     subset_type,
     sample_size, 
-    threads, # TODO: no real threading support yet, maybe will have it if multiple input files are used (one per thread)
+    # threads, # TODO: no real threading support yet, maybe will have it if multiple input files are used (one per thread)
     log_file,
     log_level,
 ):
@@ -111,7 +99,7 @@ def shrink_reads(
         for r1_path, r2_path in file_info.get("R1_R2_pairs", []):
             # print("a")
             logger.info(f"Processing paired-end files: {r1_path} and {r2_path}")
-            logger.info(f"Note - to ensure paired reads are sampled, this will be slow (i.e. if reads_x/1 was selected from file R1, and his pair reads_x/2 is at the bottom of the R2 file, I can't think of a method to get it without going over all of R2 (if compressed")
+            logger.info("Note - to ensure paired reads are sampled, this will be slow (i.e. if reads_x/1 was selected from file R1, and his pair reads_x/2 is at the bottom of the R2 file, I can't think of a method to get it without going over all of R2 (if compressed")
             
             logger.info(f"Sampling {sample_size} from {r1_path}")
             output_R1_file = output_dir / f"{r1_path.stem}_shrinked_R1.fastq"
