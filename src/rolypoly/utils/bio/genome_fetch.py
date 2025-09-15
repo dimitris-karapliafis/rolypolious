@@ -148,9 +148,27 @@ def fetch_genomes(
         return
 
     # Use taxonkit to get taxids
-    with open("tmp_gbs_50m_taxids.lst", "w") as f:
-        sp.run(["taxonkit", "name2taxid", f"--data-dir {datadir}/taxdump"], input="\n".join(taxons).encode(), stdout=f)
+    breakpoint()
+    from rolypoly.utils.various import run_command_comp
+    run_command_comp(base_cmd="taxonkit",
+                     positional_args=["name2taxid"],
+                     positional_args_location="end",
+                       params={
+                           "data-dir": str.join(datadir,f"/taxdump/taxdump"),
+                             "input": "\n".join(taxons).encode()
+                             },
+                             positional_args_location="start",
+                             assign_operator=" ",
+                             prefix_style="double",
+                             param_sep=" ",
+                             return_final_cmd=True   )
+        #   name2taxid --data-dir {datadir}/taxdump", input="\n".join(taxons).encode(), stdout=stdout,shell=True)
 
+    with open("tmp_gbs_50m_taxids.lst", "w") as f:
+        sp.run(["taxonkit", "name2taxid", f"--data-dir {datadir}/taxdump"], input="\n".join(taxons).encode(), stdout=stdout)
+        sp.run(["taxonkit", "name2taxid", f"--data-dir {datadir}/taxdump"], input="\n".join(taxons).encode(), stdout=stdout,shell=True)
+
+from sys import stdout
     # Use datasets to download genomes
     with open("tmp_gbs_50m_taxids.lst", "r") as f:
         taxids = [

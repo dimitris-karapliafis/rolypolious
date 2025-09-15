@@ -48,11 +48,39 @@ def build_data(data_dir, threads, log_file):
     logger = setup_logging(log_file)
     logger.info(f"Starting data preparation to : {data_dir}")
 
-    data_dir = pt(os.path.abspath(data_dir))
-    data_dir.mkdir(exist_ok=True)
+    contam_dir = os.path.join(data_dir, "contam")
+    os.makedirs(contam_dir, exist_ok=True)
 
-    hmmdb_dir = os.path.join(data_dir, "hmmdbs")
+    rrna_dir = os.path.join(contam_dir, "rRNA")
+    os.makedirs(rrna_dir, exist_ok=True)
+
+    adapter_dir = os.path.join(contam_dir, "adapters")
+    os.makedirs(adapter_dir, exist_ok=True)
+
+    masking_dir = os.path.join(contam_dir, "masking")﻿
+    os.makedirs(masking_dir, exist_ok=True)
+
+    taxonomy_dir = os.path.join(data_dir, "taxdump")
+    os.makedirs(taxonomy_dir, exist_ok=True)
+
+    reference_seqs = os.path.join(data_dir, "reference_seqs")
+    os.makedirs(reference_seqs, exist_ok=True)
+
+    rvmt_dir = os.path.join(reference_seqs, "RVMT")
+    os.makedirs(rvmt_dir, exist_ok=True)
+
+    ncbi_ribovirus_dir = os.path.join(reference_seqs, "RVMT")
+    os.makedirs(ncbi_ribovirus_dir, exist_ok=True)
+
+    profile_dir = os.path.join(data_dir, "profiles")
+    hmmdb_dir = os.path.join(profile_dir, "hmmdbs")
+    mmseqs_dbs_dir = os.path.join(profile_dir, "mmseqs_dbs_dir")
     os.makedirs(hmmdb_dir, exist_ok=True)
+    os.makedirs(mmseqs_dbs_dir, exist_ok=True)
+
+    genomad_dir = os.path.join(profile_dir, "genomad")
+    os.makedirs(genomad_dir, exist_ok=True)
+
 
     # Add geNomad RNA viral HMMs preparation
     prepare_genomad_rna_viral_hmms(data_dir, threads, logger)
@@ -188,20 +216,53 @@ def prepare_rrna_db(data_dir, log_file):
     os.chdir(rrna_dir)
 
     fetch_and_extract(
-        "https://www.arb-silva.de/fileadmin/silva_databases/release_138_1/Exports/SILVA_138.1_SSURef_NR99_tax_silva.fasta.gz",
+        "https://www.arb-silva.de/fileadmin/silva_databases/release_138_2/Exports/SILVA_138.2_SSURef_NR99_tax_silva.fasta.gz",
         fetched_to="tmp.fasta.gz",
-        extract_to="SILVA_138.1_SSURef_NR99_tax_silva.fasta",
+        extract_to="SILVA_138.2_SSURef_NR99_tax_silva.fasta",
     )
     fetch_and_extract(
-        "https://www.arb-silva.de/fileadmin/silva_databases/release_138_1/Exports/SILVA_138.1_LSURef_NR99_tax_silva.fasta.gz",
+        "https://www.arb-silva.de/fileadmin/silva_databases/release_138_2/Exports/SILVA_138.2_LSURef_NR99_tax_silva.fasta.gz",
         fetched_to="tmp.fasta.gz",
-        extract_to="SILVA_138.1_LSURef_NR99_tax_silva.fasta",
+        extract_to="SILVA_138.2_LSURef_NR99_tax_silva.fasta",
     )
 
     subprocess.run("cat SILVA*fasta > merged.fas", shell=True)
 
     bbduk_command = "bbduk.sh -Xmx1g in=merged.fas out=SILVA_138_merged_masked.fa zl=9 entropy=0.6 entropyk=4 entropywindow=24 maskentropy"
     subprocess.run(bbduk_command, shell=True)
+
+    # now for NCBI refseq.
+    fetch_and_extract(
+        "https://ftp.ncbi.nlm.nih.gov/blast/db/16S_ribosomal_RNA.tar.gz",
+        fetched_to="tmp.fasta.gz",
+        extract_to="NCBI_16S_ribosomal_RNA.fasta",
+    )    
+    fetch_and_extract(
+        "https://ftp.ncbi.nlm.nih.gov/blast/db/18S_fungal_sequences.tar.gz",
+        fetched_to="tmp.fasta.gz",
+        extract_to="NCBI_18S_ribosomal_RNA.fasta",
+    )    
+    fetch_and_extract(
+        "https://ftp.ncbi.nlm.nih.gov/blast/db/28S_fungal_sequences.tar.gz",
+        fetched_to="tmp.fasta.gz",
+        extract_to="28S_fungal_sequences.fasta",
+    )    
+    fetch_and_extract(
+        "https://ftp.ncbi.nlm.nih.gov/blast/db/16S_ribosomal_RNA.tar.gz",
+        fetched_to="tmp.fasta.gz",
+        extract_to="NCBI_16S_ribosomal_RNA.fasta",
+    )    
+    
+#     16S_ribosomal_RNA-nucl-metadata.json       2025-08-26 05:36  468   
+# 16S_ribosomal_RNA.tar.gz                   2025-08-26 05:36   64M  
+# 16S_ribosomal_RNA.tar.gz.md5               2025-08-26 05:36   59   
+# 18S_fungal_sequences-nucl-metadata.json    2025-08-28 05:36  489   
+# 18S_fungal_sequences.tar.gz                2025-08-28 05:36   58M  
+# 18S_fungal_sequences.tar.gz.md5            2025-08-28 05:36   62   
+# 28S_fungal_sequences-nucl-metadata.json    2025-08-28 05:36  491   
+# 28S_fungal_sequences.tar.gz                2025-08-28 05:36   60M  
+# 28S_fungal_sequences.tar.gz.md5  
+
 
 
 
@@ -310,12 +371,10 @@ def prepare_genomad_rna_viral_hmms(data_dir, threads, logger: logging.Logger):
         logger: Logger object for recording progress and errors
     """
 
-
-
     logger.info("Starting geNomad RNA viral HMM preparation")
 
     # Create directories
-    genomad_dir = os.path.join(data_dir, "genomad")
+    genomad_dir = os.path.join(data_dir, "profiles/genomad")
     genomad_db_dir = os.path.join(genomad_dir, "genomad_db")
     genomad_markers_dir = os.path.join(genomad_db_dir, "markers")
     genomad_alignments_dir = os.path.join(genomad_markers_dir, "alignments")
@@ -323,6 +382,7 @@ def prepare_genomad_rna_viral_hmms(data_dir, threads, logger: logging.Logger):
     os.makedirs(genomad_db_dir, exist_ok=True)
     os.makedirs(genomad_markers_dir, exist_ok=True)
     os.makedirs(genomad_alignments_dir, exist_ok=True)
+
     # Download metadata and database
     genomad_data = "https://zenodo.org/api/records/14886553/files-archive" # noqa
     db_url = (
@@ -332,33 +392,100 @@ def prepare_genomad_rna_viral_hmms(data_dir, threads, logger: logging.Logger):
     try:
         # Download and read metadata
         logger.info("Downloading geNomad metadata")
-        aria2c_command = f"aria2c -c -o genomad_metadata_v1.9.tsv.gz {metadata_url}"
+        aria2c_command = f"aria2c -c -o {genomad_dir}/genomad_metadata_v1.9.tsv.gz {metadata_url}"
         subprocess.run(aria2c_command, shell=True)
-        extract(archive_path="./genomad_metadata_v1.9.tsv.gz", extract_to="./genomad")
         metadata_df = pl.read_csv(
-            "./genomad/genomad_metadata_v1.9.tsv",
+            f"{genomad_dir}/genomad_metadata_v1.9.tsv.gz",
             separator="\t",
             null_values=["NA"],
             infer_schema_length=10000,
         )
-        # Filter for RNA viral specific markers
-        rna_viral_markers = metadata_df.filter(
-            (pl.col("VIRUS_HALLMARK") == 1)
-            & (pl.col("TAXONOMY").str.contains("Riboviria;Orthornavira"))
-            & (pl.col("SPECIFICITY_CLASS") == "VV")
-        )
-        rna_viral_markers.write_csv("./genomad/rna_viral_markers.csv")
-        null_ANNOTATION_DESCRIPTION = rna_viral_markers.filter(
+        # only ones without description
+        to_fill = metadata_df.filter(
             pl.col("ANNOTATION_DESCRIPTION").is_null()
         )
-        null_ANNOTATION_DESCRIPTION.write_csv(
-            "./genomad/null_annotation_description.csv"
+        # fornow, only ones with a single accession (but word cloud/majority vote would probably work for multiple accessions)
+        to_fill = to_fill.filter(
+                pl.col("ANNOTATION_ACCESSIONS").str.count_matches(",").eq(0))
+        # if multiple maybe split->explode->groupby->agg->majority vote, something like:
+        # to_fill = to_fill.with_columns(pl.col("ANNOTATION_ACCESSIONS").str.split(",").explode())
+
+        to_fill= to_fill.with_columns(
+            pl.when(pl.col("ANNOTATION_ACCESSIONS").str.starts_with("PF")).then(pl.lit("Pfam"))
+            .when(pl.col("ANNOTATION_ACCESSIONS").str.starts_with("COG")).then(pl.lit("COG"))
+            .when(pl.col("ANNOTATION_ACCESSIONS").str.starts_with("K")).then(pl.lit("KEGG"))
+            .otherwise(pl.lit("unknown")).alias("source_db"))
+        
+        def query_interpro(entry: str, source_db: str) :
+            """Fetch the InterPro description for a given entry.
+
+            The API returns ``metadata["description"]`` as a list of dicts where each
+            dict contains an HTML string under the key ``"text"``.  We pull the first
+            element (if any) and strip the HTML tags, returning plain‑text.
+            """
+            from bs4 import BeautifulSoup
+            import requests
+            if source_db == "unknown":
+                return None
+            url = f"https://www.ebi.ac.uk/interpro/api/entry/{source_db}/{entry}"
+            # print(url)                     #  debugging
+
+            response = requests.get(url)
+            if response.status_code != 200:
+                return None
+
+            data = response.json()
+            # print(data)                     #  debugging
+
+            desc = data.get("metadata", {}).get("description")
+            if isinstance(desc, list):
+                desc = desc[0] if desc else {}
+            if not isinstance(desc, dict):
+                return None
+
+            html_text = desc.get("text", "")
+            if not html_text:
+                return None
+
+            # Strip HTML tags, keep only the inner text (e.g. the <p> content) # TODO: figure out what the "llm:false/true" means
+            plain = BeautifulSoup(html_text, "html.parser").get_text().strip()
+            return plain if plain else None
+
+        # filled_interpro = []
+
+        # for row in to_fill.to_dicts():
+        #     if row["source_db"] == "unknown":
+        #         filled_interpro.append(None)
+        #     else:
+        #         filled_interpro.append(query_interpro(row["ANNOTATION_ACCESSIONS"], row["source_db"]))
+
+        # to_fill = to_fill.with_columns(pl.lit(filled_interpro).alias("interpro"))
+
+        to_fill = (
+            to_fill
+            .with_columns(
+                # Combine the two columns into a struct so each row is passed as a dict.
+                pl.struct(["ANNOTATION_ACCESSIONS", "source_db"])
+                .map_elements(
+                    lambda row: query_interpro(row["ANNOTATION_ACCESSIONS"], row["source_db"]),
+                    return_dtype=pl.String,
+                )
+                .alias("interpro")
+            )
         )
-        notation_added = pl.read_csv("./genomad/notation_added.csv")
-        # merge the two dataframes, colhece the notation_added dataframe into rna_viral_markers
-        rna_viral_markers = (
-            rna_viral_markers.join(
-                notation_added["ANNOTATION_DESCRIPTION", "MARKER"],
+
+        to_fill.write_csv(
+                f"{genomad_dir}/null_annotation_description.csv"
+        )
+        # optional - manually go over some of (all/some) of these and validate...
+        to_fill = pl.read_csv(
+                        f"{genomad_dir}/null_annotation_description.csv"
+        )
+        
+        # merge the two dataframes, colhece the notation_added dataframe into metadata_df
+        metadata_df = (
+            metadata_df.join(
+                to_fill["ANNOTATION_DESCRIPTION", "MARKER","interpro"],
                 on="MARKER",
                 how="left",
             )
@@ -367,21 +494,32 @@ def prepare_genomad_rna_viral_hmms(data_dir, threads, logger: logging.Logger):
                     [
                         pl.col("ANNOTATION_DESCRIPTION"),
                         pl.col("ANNOTATION_DESCRIPTION_right"),
+                        pl.col("interpro"),
                     ]
                 ).alias("ANNOTATION_DESCRIPTION")
             )
-            .drop("ANNOTATION_DESCRIPTION_right")
+            .drop("ANNOTATION_DESCRIPTION_right") # .drop("interpro")
         )
-        rna_viral_markers.write_csv("./genomad/rna_viral_markers_with_notation.csv")
-        # Download database
+
+        # for rolypoly, subsetting to RNA virus specific markers only
+        # Filter for RNA viral specific markers
+        rna_viral_markers = metadata_df.filter(
+            (pl.col("VIRUS_HALLMARK") == 1)
+            & (pl.col("TAXONOMY").str.contains("Riboviria;Orthornavira"))
+            & (pl.col("SPECIFICITY_CLASS") == "VV")
+        )
+
+        rna_viral_markers.write_csv(f"{genomad_dir}/rna_viral_markers_with_annotation.csv")
+
+        # Download MSAs
         logger.info("Downloading geNomad database")
-        aria2c_command = f"aria2c -c -o genomad_msa_v1.9.tar.gz {db_url}"
+        aria2c_command = f"aria2c -c -o {genomad_dir}/genomad_msa_v1.9.tar.gz {db_url}"
         subprocess.run(aria2c_command, shell=True)
 
         # Extract RNA viral MSAs
         marker_ids = rna_viral_markers["MARKER"].to_list()
 
-        with tarfile.open("genomad/genomad_msa_v1.9.tar", "r") as tar:
+        with tarfile.open(f"{genomad_dir}/genomad_msa_v1.9.tar.gz", "r") as tar:
             for member in tar.getmembers():
                 if (
                     member.name.removeprefix("genomad_msa_v1.9/").removesuffix(".faa")
@@ -398,16 +536,17 @@ def prepare_genomad_rna_viral_hmms(data_dir, threads, logger: logging.Logger):
         shutil.rmtree(genomad_alignments_dir + "/genomad_msa_v1.9")
 
         output_hmm = os.path.join(
-            os.path.join(data_dir, "hmmdbs"), "genomad_rna_viral_markers.hmm"
+            os.path.join(data_dir, "profiles/hmmdbs"), "genomad_rna_viral_markers.hmm"
         )
         hmmdb_from_directory(
             genomad_alignments_dir,
             output_hmm,
             msa_pattern="*.faa",
-            info_table="./genomad/rna_viral_markers_with_notation.csv",
+            info_table=f"{genomad_dir}/rna_viral_markers_with_annotation.csv",
             name_col="MARKER",
             accs_col="ANNOTATION_ACCESSIONS",
             desc_col="ANNOTATION_DESCRIPTION",
+            gath_col=None # no gathering theshold pre-defined for genomad
         )
 
         logger.info(f"Created RNA viral HMM database at {output_hmm}")
@@ -416,23 +555,59 @@ def prepare_genomad_rna_viral_hmms(data_dir, threads, logger: logging.Logger):
         logger.error(f"Error preparing geNomad RNA viral HMMs: {e}")
         raise
 
-def prepare_vfam_hmm(data_dir, logger: logging.Logger):
+def prepare_vfam(data_dir, logger: logging.Logger):
     """Prepare VFAM HMM database."""
+    # fetch_and_extract(
+    #     url="https://fileshare.csb.univie.ac.at/vog/latest/vfam.hmm.tar.gz",
+    #     fetched_to=os.path.join(data_dir, "profiles","hmmdbs", "vfam","vfam.tar.gz"),
+    #     extract_to=os.path.join(data_dir, "profiles","hmmdbs", "vfam"),
+    # )
+    os.makedirs(os.path.join(data_dir, "profiles","hmmdbs", "vfam"), exist_ok=True)
+    vfam_df = pl.read_csv("https://fileshare.lisc.univie.ac.at//vog/latest/vfam.annotations.tsv.gz", separator="\t")
+    # In [54]: vfam_df.shape
+    # Out[54]: (39624, 5)
+    # In [56]: vfam_df.collect_schema()
+    # Out[56]: 
+    # Schema([('#GroupName', String),
+    #     ('ProteinCount', Int64),
+    #     ('SpeciesCount', Int64),
+    #     ('FunctionalCategory', String),
+    #     ('ConsensusFunctionalDescription', String)])
+
+    vfam_df.write_csv(os.path.join(data_dir, "profiles","hmmdbs", "vfam", "vfam.annotations.tsv.gz"))
+    version = requests.get("https://fileshare.lisc.univie.ac.at/vog/latest/release.txt").text.strip()
+    logger.info(f"VFAM version: {version}")
+    
+    # the raw MSAs
     fetch_and_extract(
-        "https://fileshare.csb.univie.ac.at/vog/vog230/vfam.hmm.tar.gz",
-        extract_to=os.path.join(data_dir, "hmmdbs", "vfam"),
+        url="https://fileshare.lisc.univie.ac.at//vog/latest/vfam.raw_algs.tar.gz",
+        fetched_to=os.path.join(data_dir, "profiles","hmmdbs", "vfam","vfam.raw_algs.tar.gz"),
+        extract_to=os.path.join(data_dir, "profiles","hmmdbs", "vfam"),
     )
-    # move all files in vfam/hmm to vfam/
-    for file in os.listdir(os.path.join(data_dir, "hmmdbs", "vfam", "hmm")):
-        shutil.move(os.path.join(data_dir, "hmmdbs", "vfam", "hmm", file), os.path.join(data_dir, "hmmdbs", "vfam", file))
-    # concat all the hmms and remove subdirectories
-    with open(os.path.join(data_dir, "hmmdbs", "vfam.hmm"), "w") as f_out:
-        for file in os.listdir(os.path.join(data_dir, "hmmdbs", "vfam")):
-            if file.endswith(".hmm"):
-                with open(os.path.join(data_dir, "hmmdbs", "vfam", file), "r") as f_in:
-                    f_out.write(f_in.read())
-    # remove the vfam directory
-    shutil.rmtree(os.path.join(data_dir, "hmmdbs", "vfam"))
+
+    output_hmm = os.path.join(
+            os.path.join(data_dir, "profiles/hmmdbs"), "vfam.hmm"
+        )
+    hmmdb_from_directory(
+            os.path.join(data_dir, "profiles","hmmdbs", "vfam","msa"),
+            output_hmm,
+            msa_pattern="*.msa",
+            info_table=(os.path.join(data_dir, "profiles","hmmdbs", "vfam", "vfam.annotations.tsv.gz")),
+            name_col="#GroupName",
+            accs_col="#GroupName",
+            desc_col="ConsensusFunctionalDescription",
+            gath_col=None # no gathering theshold pre-defined 
+        )
+    
+    # Build the mmseqs database
+    mmseqs_command = f"mmseqs createdb tmp_nochimeras.fasta mmdb/RVMT_mmseqs_db2 --dbtype 2"
+        "mmseqs createdb tmp_nochimeras.fasta mmdb/RVMT_mmseqs_db2 --dbtype 2"
+    )
+    subprocess.run(mmseqs_command, shell=True)
+
+
+    # remove the vfam msa directory
+    shutil.rmtree(os.path.join(data_dir, "profiles","hmmdbs", "vfam","msa"))
     logger.info(f"Created VFAM HMM database at {os.path.join(data_dir, 'hmmdbs', 'vfam.hmm')}")
 
 # setup taxonkit
