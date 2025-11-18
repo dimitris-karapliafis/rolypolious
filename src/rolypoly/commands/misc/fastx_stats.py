@@ -99,7 +99,7 @@ def fastx_stats(
     fields,
     circular,
 ):
-    """Calculate sequence statistics using Polars expressions.
+    """Calculate sequence statistics (min max mean etc of length, GC, N counts, using Polars expressions. 
         Note:
         - No support yet for reverse complement (not in circular or hash). TODO: <--
     """

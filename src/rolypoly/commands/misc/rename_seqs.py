@@ -24,7 +24,7 @@ console = Console()
     help="Include sequence statistics in mapping file (length, GC content)",
 )
 def rename_seqs(input: str, output: str, mapping: str, prefix: str, hash: bool, stats: bool):
-    """Rename sequences in a FASTA file with consistent IDs.
+    """Rename sequences in a FASTA file with consistent IDs (supports numbering or hashing, appending attributes like GC and length).
 
     This tool renames sequences in a FASTA file using either sequential numbers
     or hashes, and generates a lookup table mapping old IDs to new IDs.

@@ -37,26 +37,65 @@ bash quick_setup.sh /path/to/conda/env /path/to/install/rolypoly_code /path/to/s
 ```
 Or use [pixi](https://pixi.sh) for environment mangement (*recomended for rolling development*)
 
+
 ## Usage
-RolyPoly is a command-line tool with subcommands for different stages of the RNA virus identification pipeline. For a detailed help (in terminal), use `rolypoly help`. For more specific help, see the [docs](./https://pages.jgi.doe.gov/rolypoly/docs/commands/index.md).
+RolyPoly is a command-line tool with subcommands grouped by analysis stage. For a detailed help (in terminal), use `rolypoly --help` or `rolypoly <group> --help`. For more specific help, see the [docs](https://pages.jgi.doe.gov/rolypoly/docs/commands/index.md).
 
 ```bash
-rolypoly [OPTIONS] COMMAND [ARGS]...
- ```
+rolypoly [OPTIONS] <GROUP> <COMMAND> [ARGS]...
+```
+
+### Command Groups and Subcommands
+
+#### data
+- `get-data` — Download/setup required data
+- `version` — Show code and data version info
+
+#### reads
+- [`filter-reads`](https://pages.jgi.doe.gov/rolypoly/docs/commands/read_processing): Host/rRNA/adapters/artifact filtering and QC (bbmap, seqkit, etc.)
+- [`shrink-reads`](https://pages.jgi.doe.gov/rolypoly/docs/commands/shrink_reads): Downsample or subsample reads (seqkit, custom)
+- [`mask-dna`](https://pages.jgi.doe.gov/rolypoly/docs/commands/mask_dna): Mask DNA regions in RNA-seq reads (bbmap, seqkit)
+
+#### annotation
+- [`annotate`](https://pages.jgi.doe.gov/rolypoly/docs/commands/annotate): Genome feature annotation (prodigal, pyrodigal-gv, custom)
+- [`annotate-rna`](https://pages.jgi.doe.gov/rolypoly/docs/commands/annotate_rna): RNA secondary structure labelling and ribozyme detection (Infernal, ViennaRNA, Rfam)
+- [`annotate-prot`](https://pages.jgi.doe.gov/rolypoly/docs/commands/annotate_prot): Protein domain annotation and functional prediction (HMMER, Pfam, custom)
+
+#### assembly (Meta/Genome Assembly)
+- `assemble` — Assemble genomes/metagenomes
+- `filter-contigs` — Filter assembled contigs
+
+#### misc (Miscellaneous)
+- `end2end` — Run end-to-end pipeline
+- `fetch-sra` — Download SRA fastq files
+- `fastx-stats` — Compute FASTX statistics
+- `rename-seqs` — Rename sequences
+- `quick-taxonomy` — Quick taxonomy assignment
+
+#### identify (RNA Virus Identification)
+- `marker-search` — Search for viral markers
+- `search-viruses` — Map and identify viruses
+
+**Notes:**
+- Only the commands listed above are currently exposed via the CLI. Some modules in the codebase are not available as CLI commands.
+- For help on any command, use: `rolypoly <group> <command> --help`
+- Some commands (e.g., `co-assembly`, `refine`, `visualize`, `characterise`, etc.) are not currently available or are commented out in the CLI.
 
 ## Project Status
 Active development. Currently implemented features:
-- ✅ NGS raw read filtering (Host, rRNA, adapters, artefacts) and quality control report[(`filter-reads`)](https://pages.jgi.doe.gov/rolypoly/docs/commands/read_processing)
-- ✅ Assembly (SPAdes, MEGAHIT and penguin) [(`assembly`)](https://pages.jgi.doe.gov/rolypoly/docs/commands/assembly)
-- ✅ Contig filtering and clustering [(`filter-contigs`)](https://pages.jgi.doe.gov/rolypoly/docs/commands/filter_assembly)
-- ✅ Marker gene search with pyhmmer (mainly RdRps, genomad VV's or user-provided) [(`marker-search`)](https://pages.jgi.doe.gov/rolypoly/docs/commands/marker_search)
-- ✅ RNA secondary structure prediction, annotation and ribozyme identification [(`annotate-rna`)](https://pages.jgi.doe.gov/rolypoly/docs/commands/annotate_rna)
-- ✅ Nucleotide search vs known viruses [(`search-viruses`)](https://pages.jgi.doe.gov/rolypoly/docs/commands/search_viruses)
-- ✅ Prepare external data [(`prepare-external-data`)](https://pages.jgi.doe.gov/rolypoly/docs/commands/prepare_external_data)  
+
+- ✅ NGS raw read filtering (Host, rRNA, adapters, artefacts) and quality control report ([`reads filter-reads`](https://pages.jgi.doe.gov/rolypoly/docs/commands/read_processing))
+- ✅ Assembly (SPAdes, MEGAHIT and penguin) ([`assembly assemble`](https://pages.jgi.doe.gov/rolypoly/docs/commands/assembly))
+- ✅ Contig filtering and clustering ([`assembly filter-contigs`](https://pages.jgi.doe.gov/rolypoly/docs/commands/filter_assembly))
+- ✅ Marker gene search with pyhmmer (mainly RdRps, genomad VV's or user-provided) ([`identify marker-search`](https://pages.jgi.doe.gov/rolypoly/docs/commands/marker_search))
+- ✅ RNA secondary structure prediction, annotation and ribozyme identification ([`annotation annotate-rna`](https://pages.jgi.doe.gov/rolypoly/docs/commands/annotate_rna))
+- ✅ Nucleotide search vs known viruses ([`identify search-viruses`](https://pages.jgi.doe.gov/rolypoly/docs/commands/search_viruses))
+- ✅ Prepare external data ([`data get-data`](https://pages.jgi.doe.gov/rolypoly/docs/commands/prepare_external_data))
+
 
 Under development:
-- 🚧 Protein annotation (`annotate-protein`) (mostly done, but need to check other DBs or tools - Currently no structual prediction support)
-- 🚧 Host prediction (`host-predict`) (current plan: point to other tools)
+- 🚧 Protein annotation (`annotation annotate-prot`) (mostly done, but need to check other DBs or tools - Currently no structural prediction support)
+- 🚧 Host prediction (`TBD`)
 - 🚧 Genome binning and refinement (`TBD`)
 - 🚧 Virus taxonomic classification (`TBD`)
 - 🚧 Virus feature prediction (+/-ssRNA/dsRNA, circular/linear, mono/poly-segmented, capsid type, etc.) (`TBD`)
@@ -133,10 +172,12 @@ RolyPoly will try to remind you to cite these too based on the commands you run.
 There are many good virus analysis software out there*. Many of them are custom made for specific virus groups, some are generalists, but most of them require complete control over the analysis process (so one or two point of entry for data). Apart from the input, these pipelines vary in their implementation (laguange, workflow magnement system (snakemake, nextflow...), dependecies), methodologies (tool choice for similar step like assembler), goals (e.g. specific pathogen analysis vs whole  virome analysis). These are other differences effect the design process and the tooling choices (such as selecting a fast nucleic based sequence search method limited to high identity, over a slow but more senstive profile or structure (amino) based search method). This has created some "lock in" (IMO), and I have found myself asked by people "what do you recomend for xyz" or "which pipeline should I use". Most people have limited time to invest in custom analysis pipeline design and so end up opting for an existing, off-the-shelve option, potentially compromising or having to align their goals with what the given software offers (if they they are already aligned - great!). 
 * Checkout [awesome-rna-virus-tools](https://github.com/rdrp-summit/awesome-rna-virus-tools) for an awesome list of RNA virus (and related) software.
 
-### Reporting Issues and Contribution
-RolyPoly is hosted on GitHub (issue tracking and development) and JGI's gitlab (Documentation, releases and archiving).  
-Please report bugs you find in the [Issues](https://github.com/UriNeri/rolypoly/issues) page.  
-Suggestions and Contributions are welcome - either fork the repo and open a pull request or contact us directly.
+### Reporting Issues
+Please report bugs you find in the [Issues](https://github.com/UriNeri/rolypoly/issues) page.    
+
+
+### Contribution
+All forms of contributions are welcome - please see the [CONTRIBUTING.md](./CONTRIBUTING.md) file for more details.
 
 ## Authors (partial list, TBD update)
 <details><summary>Click to show authors</summary>
@@ -149,10 +190,13 @@ Suggestions and Contributions are welcome - either fork the repo and open a pull
 - Clement Coclet
 - David Parker
 - Dimitris Karapliafis
+- And more!
+- Your name here? Open a PR :)
 </details>
 
 ## Related projects
-If you are interested in profile based marker searches, I recomend checking out [RdRp-CATCH](link), and if you are looking to expediate NCBI submission (among other tasks), check outr [suv-tk](link).
+- [RdRp-CATCH](link) If you are interested in profile based marker searches, benchmarking, and thershold setting.
+- [suvtk](link) if you are looking to expediate NCBI submission (among other tasks)
 
 
 ## Acknowledgments

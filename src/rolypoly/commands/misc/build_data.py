@@ -389,171 +389,139 @@ def prepare_genomad_rna_viral_hmms(data_dir, threads, logger: logging.Logger):
         "https://zenodo.org/records/14886553/files/genomad_msa_v1.9.tar.gz?download=1"
     )
     metadata_url = "https://zenodo.org/records/14886553/files/genomad_metadata_v1.9.tsv.gz?download=1"
-    try:
-        # Download and read metadata
-        logger.info("Downloading geNomad metadata")
-        aria2c_command = f"aria2c -c -o {genomad_dir}/genomad_metadata_v1.9.tsv.gz {metadata_url}"
-        subprocess.run(aria2c_command, shell=True)
-        metadata_df = pl.read_csv(
-            f"{genomad_dir}/genomad_metadata_v1.9.tsv.gz",
-            separator="\t",
-            null_values=["NA"],
-            infer_schema_length=10000,
+    # Download and read metadata
+    logger.info("Downloading geNomad metadata")
+    aria2c_command = f"aria2c -c -d {genomad_dir} -o ./genomad_metadata_v1.9.tsv.gz {metadata_url}"
+    subprocess.run(aria2c_command, shell=True)
+    
+    metadata_df = pl.read_csv(
+        f"{genomad_dir}/genomad_metadata_v1.9.tsv.gz",
+        separator="\t",
+        null_values=["NA"],
+        infer_schema_length=10000,
+    )
+    # only virus specific markers
+    # metadata_df = metadata_df.filter(pl.col("SPECIFICITY_CLASS") == "VV")
+    # only RNA viral markers
+    metadata_df = metadata_df.filter(pl.col("ANNOTATION_DESCRIPTION").str.to_lowercase().str.contains("rna-dependent rna polymerase") |
+                                    pl.col("TAXONOMY").str.contains("Riboviria") | 
+                                    pl.col("SOURCE").str.contains("RVMT")
+                                    )
+    # Next, filling missing annotation from InterPro.
+    # only ones without description
+    to_fill = metadata_df.filter(
+        pl.col("ANNOTATION_DESCRIPTION").is_null()
+    )
+    # if multiple maybe split->explode->groupby->agg->majority vote, something like:
+    # nah just using the first if multiple maybe split->explode->first:
+    # for now, only using a single accession (but word cloud/majority vote would probably work for multiple accessions)
+    # to_fill = to_fill.with_columns(pl.col("ANNOTATION_ACCESSIONS").str.split(";").list.first().alias("ANNOTATION_ACCESSIONS_first"))
+    to_fill = to_fill.with_columns(pl.col("ANNOTATION_ACCESSIONS").str.split(";").alias("ANNOTATION_ACCESSIONS_struct"))
+    to_fill = to_fill.explode("ANNOTATION_ACCESSIONS_struct")
+
+    to_fill = to_fill.with_columns(
+        pl.when(pl.col("ANNOTATION_ACCESSIONS").str.starts_with("PF")).then(pl.lit("Pfam"))
+        .when(pl.col("ANNOTATION_ACCESSIONS").str.starts_with("COG")).then(pl.lit("COG"))
+        .when(pl.col("ANNOTATION_ACCESSIONS").str.starts_with("K")).then(pl.lit("KEGG"))
+        .otherwise(pl.lit("unknown")).alias("source_db"))
+
+    # We (currently) only carte about viral specific markers, so filtering out the rest
+    # Not sure Kegg is on interpro.
+    to_fill = to_fill.filter(pl.col("source_db").str.contains("Pfam|COG"))
+    
+    def query_interpro(entry: str, source_db: str) :
+        """Fetch the InterPro description for a given entry.
+        """
+        # from bs4 import BeautifulSoup
+        import requests
+        if source_db == "unknown":
+            return None
+        url = f"https://www.ebi.ac.uk/interpro/api/entry/{source_db}/{entry}"
+        # print(url)                     #  debugging
+
+        response = requests.get(url)
+        if response.status_code != 200:
+            return None
+
+        data = response.json()
+        # print(data)                     #  debugging
+
+        # desc = data.get("metadata", {}).get("description")
+        desc = data.get("metadata", {}).get("name",{}).get("name",None)
+        return desc
+
+    filled_interpro = []
+    from tqdm import tqdm
+    tiny_fill = to_fill.select(["ANNOTATION_ACCESSIONS_struct","source_db"]).unique()
+    
+    for row in tqdm(tiny_fill.to_dicts()):
+        if row["source_db"] == "unknown":
+            filled_interpro.append(None)
+        else:
+            this_desc =  query_interpro(row["ANNOTATION_ACCESSIONS_struct"], row["source_db"])
+            filled_interpro.append(this_desc)
+            print(f"{row['ANNOTATION_ACCESSIONS_struct']}\t{this_desc}")  # debugging
+            # filled_interpro.append(query_interpro(row["ANNOTATION_ACCESSIONS"], row["source_db"]))
+
+    tiny_fill = tiny_fill.with_columns(pl.Series(filled_interpro).alias("interpro"))
+    to_fill = to_fill.join(tiny_fill, on = ["ANNOTATION_ACCESSIONS_struct","source_db"], how="left")
+    to_fill = to_fill.with_columns(
+    pl.coalesce(
+                pl.col("ANNOTATION_DESCRIPTION"),
+                pl.col("interpro")).alias("ANNOTATION_DESCRIPTION"))
+    to_fill = to_fill.drop("ANNOTATION_ACCESSIONS_struct","interpro","source_db").unique()
+    to_fill = to_fill.filter(pl.col("ANNOTATION_DESCRIPTION").is_not_null()) 
+    # hopefully now we have filled some of the missing descriptions, and we don't have any duplicate MARKERs
+
+    metadata_df = metadata_df.filter(~pl.col("MARKER").is_in(to_fill["MARKER"].implode()))
+    metadata_df = metadata_df.vstack(to_fill)
+
+    metadata_df.write_csv(
+            f"{genomad_dir}/rna_viral_markers_with_annotation.csv"
+    )
+    
+
+    # Download MSAs
+    logger.info("Downloading geNomad database")
+    aria2c_command = f"aria2c -c -d {genomad_dir} -o ./genomad_msa_v1.9.tar.gz {db_url}"
+    subprocess.run(aria2c_command, shell=True)
+
+    # Extract RNA viral MSAs
+    marker_ids = metadata_df["MARKER"].to_list()
+
+    with tarfile.open(f"{genomad_dir}/genomad_msa_v1.9.tar.gz", "r") as tar:
+        for member in tar.getmembers():
+            if (
+                member.name.removeprefix("genomad_msa_v1.9/").removesuffix(".faa")
+                in marker_ids
+            ):
+                tar.extract(member, genomad_alignments_dir)
+    # need to move all files in genomad/genomad_db/markers/alignments/genomad_msa_v1.9/* to genomad/genomad_db/markers/alignments/
+    for file in os.listdir(genomad_alignments_dir + "/genomad_msa_v1.9"):
+        shutil.move(
+            genomad_alignments_dir + "/genomad_msa_v1.9/" + file,
+            genomad_alignments_dir + "/" + file,
         )
-        # only ones without description
-        to_fill = metadata_df.filter(
-            pl.col("ANNOTATION_DESCRIPTION").is_null()
-        )
-        # fornow, only ones with a single accession (but word cloud/majority vote would probably work for multiple accessions)
-        to_fill = to_fill.filter(
-                pl.col("ANNOTATION_ACCESSIONS").str.count_matches(",").eq(0))
-        # if multiple maybe split->explode->groupby->agg->majority vote, something like:
-        # to_fill = to_fill.with_columns(pl.col("ANNOTATION_ACCESSIONS").str.split(",").explode())
+    # remove the genomad_msa_v1.9 directory
+    shutil.rmtree(genomad_alignments_dir + "/genomad_msa_v1.9")
 
-        to_fill= to_fill.with_columns(
-            pl.when(pl.col("ANNOTATION_ACCESSIONS").str.starts_with("PF")).then(pl.lit("Pfam"))
-            .when(pl.col("ANNOTATION_ACCESSIONS").str.starts_with("COG")).then(pl.lit("COG"))
-            .when(pl.col("ANNOTATION_ACCESSIONS").str.starts_with("K")).then(pl.lit("KEGG"))
-            .otherwise(pl.lit("unknown")).alias("source_db"))
-        
-        def query_interpro(entry: str, source_db: str) :
-            """Fetch the InterPro description for a given entry.
+    output_hmm = os.path.join(
+        os.path.join(data_dir, "profiles/hmmdbs"), "genomad_rna_viral_markers.hmm"
+    )
+    hmmdb_from_directory(
+        genomad_alignments_dir,
+        output_hmm,
+        msa_pattern="*.faa",
+        info_table=f"{genomad_dir}/rna_viral_markers_with_annotation.csv",
+        name_col="MARKER",
+        accs_col="ANNOTATION_ACCESSIONS",
+        desc_col="ANNOTATION_DESCRIPTION",
+        gath_col=None # no gathering theshold pre-defined for genomad
+    )
 
-            The API returns ``metadata["description"]`` as a list of dicts where each
-            dict contains an HTML string under the key ``"text"``.  We pull the first
-            element (if any) and strip the HTML tags, returning plain‑text.
-            """
-            from bs4 import BeautifulSoup
-            import requests
-            if source_db == "unknown":
-                return None
-            url = f"https://www.ebi.ac.uk/interpro/api/entry/{source_db}/{entry}"
-            # print(url)                     #  debugging
+    logger.info(f"Created RNA viral HMM database at {output_hmm}")
 
-            response = requests.get(url)
-            if response.status_code != 200:
-                return None
 
-            data = response.json()
-            # print(data)                     #  debugging
-
-            desc = data.get("metadata", {}).get("description")
-            if isinstance(desc, list):
-                desc = desc[0] if desc else {}
-            if not isinstance(desc, dict):
-                return None
-
-            html_text = desc.get("text", "")
-            if not html_text:
-                return None
-
-            # Strip HTML tags, keep only the inner text (e.g. the <p> content) # TODO: figure out what the "llm:false/true" means
-            plain = BeautifulSoup(html_text, "html.parser").get_text().strip()
-            return plain if plain else None
-
-        # filled_interpro = []
-
-        # for row in to_fill.to_dicts():
-        #     if row["source_db"] == "unknown":
-        #         filled_interpro.append(None)
-        #     else:
-        #         filled_interpro.append(query_interpro(row["ANNOTATION_ACCESSIONS"], row["source_db"]))
-
-        # to_fill = to_fill.with_columns(pl.lit(filled_interpro).alias("interpro"))
-
-        to_fill = (
-            to_fill
-            .with_columns(
-                # Combine the two columns into a struct so each row is passed as a dict.
-                pl.struct(["ANNOTATION_ACCESSIONS", "source_db"])
-                .map_elements(
-                    lambda row: query_interpro(row["ANNOTATION_ACCESSIONS"], row["source_db"]),
-                    return_dtype=pl.String,
-                )
-                .alias("interpro")
-            )
-        )
-
-        to_fill.write_csv(
-                f"{genomad_dir}/null_annotation_description.csv"
-        )
-        # optional - manually go over some of (all/some) of these and validate...
-        to_fill = pl.read_csv(
-                        f"{genomad_dir}/null_annotation_description.csv"
-        )
-        
-        # merge the two dataframes, colhece the notation_added dataframe into metadata_df
-        metadata_df = (
-            metadata_df.join(
-                to_fill["ANNOTATION_DESCRIPTION", "MARKER","interpro"],
-                on="MARKER",
-                how="left",
-            )
-            .with_columns(
-                pl.coalesce(
-                    [
-                        pl.col("ANNOTATION_DESCRIPTION"),
-                        pl.col("ANNOTATION_DESCRIPTION_right"),
-                        pl.col("interpro"),
-                    ]
-                ).alias("ANNOTATION_DESCRIPTION")
-            )
-            .drop("ANNOTATION_DESCRIPTION_right") # .drop("interpro")
-        )
-
-        # for rolypoly, subsetting to RNA virus specific markers only
-        # Filter for RNA viral specific markers
-        rna_viral_markers = metadata_df.filter(
-            (pl.col("VIRUS_HALLMARK") == 1)
-            & (pl.col("TAXONOMY").str.contains("Riboviria;Orthornavira"))
-            & (pl.col("SPECIFICITY_CLASS") == "VV")
-        )
-
-        rna_viral_markers.write_csv(f"{genomad_dir}/rna_viral_markers_with_annotation.csv")
-
-        # Download MSAs
-        logger.info("Downloading geNomad database")
-        aria2c_command = f"aria2c -c -o {genomad_dir}/genomad_msa_v1.9.tar.gz {db_url}"
-        subprocess.run(aria2c_command, shell=True)
-
-        # Extract RNA viral MSAs
-        marker_ids = rna_viral_markers["MARKER"].to_list()
-
-        with tarfile.open(f"{genomad_dir}/genomad_msa_v1.9.tar.gz", "r") as tar:
-            for member in tar.getmembers():
-                if (
-                    member.name.removeprefix("genomad_msa_v1.9/").removesuffix(".faa")
-                    in marker_ids
-                ):
-                    tar.extract(member, genomad_alignments_dir)
-        # need to move all files in genomad/genomad_db/markers/alignments/genomad_msa_v1.9/* to genomad/genomad_db/markers/alignments/
-        for file in os.listdir(genomad_alignments_dir + "/genomad_msa_v1.9"):
-            shutil.move(
-                genomad_alignments_dir + "/genomad_msa_v1.9/" + file,
-                genomad_alignments_dir + "/" + file,
-            )
-        # remove the genomad_msa_v1.9 directory
-        shutil.rmtree(genomad_alignments_dir + "/genomad_msa_v1.9")
-
-        output_hmm = os.path.join(
-            os.path.join(data_dir, "profiles/hmmdbs"), "genomad_rna_viral_markers.hmm"
-        )
-        hmmdb_from_directory(
-            genomad_alignments_dir,
-            output_hmm,
-            msa_pattern="*.faa",
-            info_table=f"{genomad_dir}/rna_viral_markers_with_annotation.csv",
-            name_col="MARKER",
-            accs_col="ANNOTATION_ACCESSIONS",
-            desc_col="ANNOTATION_DESCRIPTION",
-            gath_col=None # no gathering theshold pre-defined for genomad
-        )
-
-        logger.info(f"Created RNA viral HMM database at {output_hmm}")
-
-    except Exception as e:
-        logger.error(f"Error preparing geNomad RNA viral HMMs: {e}")
-        raise
 
 def prepare_vfam(data_dir, logger: logging.Logger):
     """Prepare VFAM HMM database."""
