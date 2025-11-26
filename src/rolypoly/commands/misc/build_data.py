@@ -30,7 +30,7 @@ global tools
 tools = []
 
 ### DEBUG ARGS (for manually building, not entering via CLI):
-threads = 4
+threads = 6
 log_file = "rolypoly_build_data.log"
 data_dir = "<REPO_PATH>/data"
 
@@ -63,7 +63,7 @@ def build_data(data_dir, threads, log_file):
     contam_dir = os.path.join(data_dir, "contam")
     os.makedirs(contam_dir, exist_ok=True)
 
-    rrna_dir = os.path.join(contam_dir, "rRNA")
+    rrna_dir = os.path.join(contam_dir, "rrna")
     os.makedirs(rrna_dir, exist_ok=True)
 
     adapter_dir = os.path.join(contam_dir, "adapters")
@@ -216,34 +216,18 @@ def prepare_rvmt_mmseqs(data_dir, threads, logger: logging.Logger):
         logger=logger,
     )
 
-    # Create entropy-masked temporary file before compression
-    logger.info("Creating entropy-masked sequences")
-    entropy_masked_path = os.path.join(rvmt_dir, "RVMT_entropy_masked.fasta")
-    from bbmapy import bbmask
+    # # Create entropy-masked temporary file before compression
+    # logger.info("Creating entropy-masked sequences")
+    # entropy_masked_path = os.path.join(rvmt_dir, "RVMT_entropy_masked.fasta")
+    # from bbmapy import bbmask
 
-    bbmask(
-        in1=cleaned_path,
-        out=entropy_masked_path,
-        entropy=0.05,
-        entropywindow=140,
-        threads=threads,
-    )
-
-    # Create a "compressed" file with only unique kmers
-    logger.info("Creating compressed database with kcompress")
-    compressed_fasta_path = os.path.join(
-        rvmt_dir, "RiboV1.6_Contigs_flat.fasta"
-    )
-    from bbmapy import kcompress
-
-    kcompress(
-        in1=entropy_masked_path,
-        out=compressed_fasta_path,
-        fuse=500,
-        k=31,
-        prealloc=True,
-        threads=threads,
-    )
+    # bbmask(
+    #     in1=cleaned_path,
+    #     out=entropy_masked_path,
+    #     entropy=0.05,
+    #     entropywindow=140,
+    #     threads=threads,
+    # )
 
     # now similarly, but getting the ORFs
     all_orf_info = pl.read_csv(
@@ -384,8 +368,7 @@ def tar_everything_and_upload_to_NERSC(data_dir, version=""):
 
 
 def prepare_genomad_rna_viral_markers(
-    data_dir, threads, logger: logging.Logger
-):
+    data_dir, threads, logger: logging.Logger):
     """Download and prepare RNA viral HMMs from geNomad markers.
 
     Downloads the geNomad database, analyzes the marker metadata to identify
@@ -1148,7 +1131,7 @@ def prepare_contamination_seqs(data_dir, threads, logger):
         "Preparing masking sequences by combining RVMT and NCBI ribovirus"
     )
 
-    # Create directories
+    # Create directories (if not already existing)
     contam_dir = os.path.join(data_dir, "contam")
     rrna_dir = os.path.join(contam_dir, "rrna")
     adapter_dir = os.path.join(contam_dir, "adapters")
@@ -1246,6 +1229,14 @@ def prepare_contamination_seqs(data_dir, threads, logger):
         threads=threads,
     )
 
+    # clean up intermediate files
+    try:
+        os.remove(deduplicated_fasta)
+        os.remove(compressed_path)
+        os.remove(rvmt_fasta_path)
+    except Exception as e:
+        logger.warning(f"Could not remove intermediate files: {e}")
+
     # Prepare adapter sequences
     logger.info("Fetching adapter sequences")
     fetch_and_extract(
@@ -1310,7 +1301,7 @@ def prepare_contamination_seqs(data_dir, threads, logger):
     )
 
     # Download SILVA taxonomy mappings (maps accessions to NCBI taxids)
-    logger.info("Downloading SILVA taxonomy mappings")
+    logger.info("Fetching/making SILVA taxonomy mappings (to NCBI taxids)")
 
     silva_ssu_taxmap = pl.read_csv(
         "https://www.arb-silva.de/fileadmin/silva_databases/current/Exports/taxonomy/ncbi/taxmap_embl-ebi_ena_ssu_ref_nr99_138.2.txt.gz",
@@ -1365,9 +1356,9 @@ def prepare_contamination_seqs(data_dir, threads, logger):
         on=["primaryAccession"],
         how="inner",
     )
-    # silva_fasta_df.write_parquet(os.path.join(rrna_dir, "silva_rrna_sequences.parquet"))
-    # silva_fasta_df1.height
-    # silva_fasta_df1["ncbi_taxonid"].nu ll_count()
+    silva_df.write_parquet(os.path.join(rrna_dir, "silva_rrna_sequences.parquet"))
+    # silva_df.height
+    # silva_df["ncbi_taxonid"].null_count()
 
     # Load SILVA taxonomy mappings
     logger.info(
@@ -1387,16 +1378,16 @@ def prepare_contamination_seqs(data_dir, threads, logger):
     # Generate FTP download URLs for host genomes/transcriptomes
     fetch_and_extract(
         url="https://ftp.ncbi.nlm.nih.gov/genomes/genbank/assembly_summary_genbank.txt",
-        fetched_to=os.path.join(rrna_dir, "assembly_summary_genbank.txt"),
+        fetched_to=os.path.join(rrna_dir, "assembly_summary_genbank.txt.gz"),
         extract=False,
     )
+    logger.info("Loading NCBI GenBank assembly summary")
     # genbank_summary = pl.read_csv(os.path.join(rrna_dir, "assembly_summary_genbank.txt.gz",),
     # infer_schema_length=100020, separator="\t", skip_rows=1,
     # null_values=["na","NA","-"],ignore_errors=True,
     # has_header=True)
     # polars failed me, so using line by line iterator
     from gzip import open as gz_open
-
     with gz_open(
         os.path.join(rrna_dir, "assembly_summary_genbank.txt.gz"), "r"
     ) as f:
@@ -1417,8 +1408,7 @@ def prepare_contamination_seqs(data_dir, threads, logger):
             records.append(record)
     genbank_summary = pl.from_records(records).rename({"taxid": "ncbi_taxonid"})
     genbank_summary.collect_schema()
-    # Out[22]:
-    # Schema([('assembly_accession', String),
+        # Schema([('assembly_accession', String),
     #         ('bioproject', String),
     #         ('biosample', String),
     #         ('wgs_master', String),
@@ -1456,6 +1446,121 @@ def prepare_contamination_seqs(data_dir, threads, logger):
     #         ('protein_coding_gene_count', String),
     #         ('non_coding_gene_count', String),
     #         ('pubmed_id', String)])
+
+    genbank_summary.write_parquet(
+        os.path.join(rrna_dir, "genbank_assembly_summary.parquet")
+    )
+    genbank_summary.write_csv(
+        os.path.join(rrna_dir, "genbank_assembly_summary.tsv"), separator="\t"
+    )
+    genbank_summary = pl.read_csv(
+        os.path.join(rrna_dir, "genbank_assembly_summary.tsv"),
+        infer_schema_length=100020,
+        separator="\t",
+        null_values=["na", "NA", "-"],
+        ignore_errors=True,
+        has_header=True,
+    )
+    # In [91]: genbank_summary.collect_schema()
+    # Out[91]: 
+    # Schema([('assembly_accession', String),
+    #         ('bioproject', String),
+    #         ('biosample', String),
+    #         ('wgs_master', String),
+    #         ('refseq_category', String),
+    #         ('ncbi_taxonid', Int64),
+    #         ('species_taxid', Int64),
+    #         ('organism_name', String),
+    #         ('infraspecific_name', String),
+    #         ('isolate', String),
+    #         ('version_status', String),
+    #         ('assembly_level', String),
+    #         ('release_type', String),
+    #         ('genome_rep', String),
+    #         ('seq_rel_date', String),
+    #         ('asm_name', String),
+    #         ('asm_submitter', String),
+    #         ('gbrs_paired_asm', String),
+    #         ('paired_asm_comp', String),
+    #         ('ftp_path', String),
+    #         ('excluded_from_refseq', String),
+    #         ('relation_to_type_material', String),
+    #         ('asm_not_live_date', String),
+    #         ('assembly_type', String),
+    #         ('group', String),
+    #         ('genome_size', Int64),
+    #         ('genome_size_ungapped', Int64),
+    #         ('gc_percent', Float64),
+    #         ('replicon_count', Int64),
+    #         ('scaffold_count', Int64),
+    #         ('contig_count', Int64),
+    #         ('annotation_provider', String),
+    #         ('annotation_name', String),
+    #         ('annotation_date', String),
+    #         ('total_gene_count', Int64),
+    #         ('protein_coding_gene_count', Int64),
+    #         ('non_coding_gene_count', Int64),
+    #         ('pubmed_id', String)])
+
+    genbank_summary.write_parquet(
+        os.path.join(rrna_dir, "genbank_assembly_summary.parquet")
+    )
+    genbank_summary.write_csv(
+        os.path.join(rrna_dir, "genbank_assembly_summary.tsv"), separator="\t"
+    )
+    
+
+    # next, for every unique ncbi_taxonid, we select the one that has the most protein_coding_gene_count, then refseq_category, then tie breaking with non_coding_gene_count, tie breaking by latest assembly (by seq_rel_date).
+    temp_genbank = genbank_summary.sort(
+        by=[
+            pl.col("protein_coding_gene_count").cast(pl.Int64).reverse(),
+            pl.col("refseq_category").reverse(),
+            pl.col("non_coding_gene_count").cast(pl.Int64).reverse(),
+            pl.col("seq_rel_date").reverse(),
+        ]
+    ).unique(subset=["ncbi_taxonid"], keep="first")
+    logger.info(
+        f"Filtered GenBank summary to {temp_genbank.height} unique taxid entries for SILVA sequences"
+    )
+    temp_genbank = temp_genbank.filter(pl.col("ncbi_taxonid").is_in(unique_taxids)).unique()
+    # only 30k out ok ~100k?
+    fetch_and_extract( url="http://ftp.ncbi.nlm.nih.gov/gene/DATA/gene2accession.gz",
+        fetched_to=os.path.join(rrna_dir, "gene2accession.gz"),
+        extract=False,
+    )
+    gene2accession = pl.read_csv(
+        os.path.join(rrna_dir, "gene2accession.gz"),
+        separator="\t",
+        # skip_rows=1,
+        # infer_schema_length=100020,
+        null_values=["na", "NA", "-"],
+        ignore_errors=True,
+        has_header=True,
+        # n_rows=100
+    )
+    gene2accession.write_parquet(os.path.join(rrna_dir, "gene2accession.parquet"))
+    # Schema([('#tax_id', Int64),
+    #     ('GeneID', Int64),
+    #     ('status', String),
+    #     ('RNA_nucleotide_accession.version', String),
+    #     ('RNA_nucleotide_gi', String),
+    #     ('protein_accession.version', String),
+    #     ('protein_gi', Int64),
+    #     ('genomic_nucleotide_accession.version', String),
+    #     ('genomic_nucleotide_gi', Int64),
+    #     ('start_position_on_the_genomic_accession', Int64),
+    #     ('end_position_on_the_genomic_accession', Int64),
+    #     ('orientation', String),
+    #     ('assembly', String),
+    #     ('mature_peptide_accession.version', String),
+    #     ('mature_peptide_gi', String),
+    #     ('Symbol', String)])
+    gene2accession = gene2accession.rename({"#tax_id": "ncbi_taxonid"})
+    test_df = gene2accession.filter(pl.col("ncbi_taxonid").is_in(unique_taxids))
+    test_df2 = gene2accession.select(["ncbi_taxonid","assembly"]).unique()
+
+    # for every taxid, 
+    # Out[22]:
 
     silva_df = silva_df.with_columns(
         ncbi_taxonid=pl.col("ncbi_taxonid").cast(pl.String)
