@@ -161,7 +161,9 @@ def remind_citations(
             )
         )
         display_citations(citations)
-
+    REMIND_CITATION = os.environ.get("ROLYPOLY_REMIND_CITATION", "False").lower() == "true"
+    if not REMIND_CITATION:
+        return
     console.print(
         Text(
             "\nRemember to also cite any additional databases or tools you used that are not listed here. No one is charging you extra for having a lot of citations, and it is important for reproducibility, yah silly.",

@@ -20,11 +20,13 @@ with resources.files("rolypoly").joinpath("rpconfig.json").open("r") as conff:
     config = load(conff)
 data_dir = config["ROLYPOLY_DATA"]
 os.environ["ROLYPOLY_DATA"] = data_dir  # export to env just in case
+os.environ["ROLYPOLY_REMIND_CITATION"] = config.get("ROLYPOLY_REMIND_CITATION", "False")
 os.environ["citation_file"] = str(
     resources.files("rolypoly").joinpath(
         "../../misc/all_used_tools_dbs_citations.json"
     )
 )
+
 
 
 @click.group(
