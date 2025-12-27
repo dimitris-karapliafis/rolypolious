@@ -34,7 +34,7 @@ class ReadFilterConfig(BaseConfig):
             keep_tmp=kwargs.get("keep_tmp") or False,
             log_file=kwargs.get("log_file") or None,
             threads=kwargs.get("threads") or 1,
-            memory=kwargs.get("memory") or "6gb",
+            memory=kwargs.get("memory") or "10gb",
             config_file=kwargs.get("config_file") or None,
             overwrite=kwargs.get("overwrite") or False,
             log_level=kwargs.get("log_level") or "info",
@@ -271,7 +271,7 @@ def process_reads(
     help="Number of threads to use. Example: -t 4",
 )
 @click.option(
-    "-M", "-mem", "--memory", default="6gb", help="Memory. Example: -M 8gb"
+    "-M", "-mem", "--memory", default="10gb", help="Memory. Example: -M 8gb"
 )
 @click.option(
     "-o",
@@ -664,6 +664,7 @@ def filter_known_dna(
             "output": ref_file,
             "flatten": False,
             "input": config.known_dna,
+
         }
         context = click.Context(mask_dna, ignore_unknown_options=True)
         context.invoke(mask_dna, **mask_args)
@@ -707,8 +708,8 @@ def decontaminate_rrna(
     output_file = (
         config.temp_dir / f"decontaminate_rrna_{config.file_name}.fq.gz"
     )
-    rrna_fas1 = Path(config.datadir) / "rRNA/SILVA_138_merged_masked.fa"  # type: ignore
-    rrna_fas2 = Path(config.datadir) / "rRNA/rmdup_rRNA_ncbi_masked.fa"  # type: ignore
+    rrna_fas1 = Path(config.datadir) / "contam/rrna/ncbi_rRNA_all_sequences.fasta"  # type: ignore
+    rrna_fas2 = Path(config.datadir) / "contam/rrna/SILVA_138.2_SSURef_NR99_tax_silva.fasta"  # type: ignore
     try:
         params = config.step_params["decontaminate_rrna"]
         bbduk(
@@ -741,7 +742,7 @@ def decontaminate_rrna(
 def fetch_and_mask_genomes(config: ReadFilterConfig) -> Union[str, Path]:
     """Fetch and mask genomes."""
     from rolypoly.commands.reads.mask_dna import mask_dna
-    from rolypoly.utils.bio.genome_fetch import fetch_genomes
+    from rolypoly.utils.bio.genome_fetch import fetch_genomes_from_stats_file
 
     # Create a dedicated subfolder for fetched genomes using absolute paths
     fetched_dna_dir = config.temp_dir / "fetched_dna" / "genomes"
@@ -750,7 +751,7 @@ def fetch_and_mask_genomes(config: ReadFilterConfig) -> Union[str, Path]:
     # Get absolute paths
     abs_gbs_file = (fetched_dna_dir / "gbs_50m.fasta").absolute()
 
-    if "filter_rp_identified_DNA_genomes" not in config.skip_steps:
+    if "filter_identified_dna" not in config.skip_steps:
         stats_file = Path(
             config.temp_dir / f"stats_decontaminate_rrna_{config.file_name}.txt"
         ).absolute()
@@ -772,12 +773,17 @@ def fetch_and_mask_genomes(config: ReadFilterConfig) -> Union[str, Path]:
         # Copy the stats file to the genomes directory using absolute paths
         shutil.copy2(str(stats_file), str(abs_tmp_stats))
 
-        # Run fetch_genomes directly in the genomes directory with absolute paths
-        fetch_genomes(
-            str(abs_tmp_stats),
-            str(abs_gbs_file),
+        # Get the mapping file path
+        mapping_path = Path(config.datadir) / "contam/rrna/rrna_to_genome_mapping.parquet"
+
+        # Run fetch_genomes_from_stats_file directly in the genomes directory with absolute paths
+        fetch_genomes_from_stats_file(
+            stats_file=str(abs_tmp_stats),
+            mapping_path=str(mapping_path),
+            output_file=str(abs_gbs_file),
+            max_genomes=config.max_genomes,
             threads=config.threads,
-            max2take=config.max_genomes,
+            logger=config.logger,
         )
         if not abs_gbs_file.exists() or abs_gbs_file.stat().st_size < 20:
             config.logger.warning(
@@ -794,6 +800,7 @@ def fetch_and_mask_genomes(config: ReadFilterConfig) -> Union[str, Path]:
             )
 
     if "mask_fetched_dna" not in config.skip_steps:
+        config.logger.info("Masking fetched genomes")
         mask_args = {
             "threads": config.threads,
             "memory": config.memory["giga"],
@@ -907,8 +914,8 @@ def trim_adapters(
     from bbmapy import bbduk
 
     output_file = config.temp_dir / f"trim_adapters_{config.file_name}.fq.gz"
-    adapters_new = Path(config.datadir) / "contam/AFire_illuminatetritis1223.fa"
-    adapters_bb = Path(config.datadir) / "contam/bbmap_adapters.fa"
+    adapters_new = Path(config.datadir) / "contam/adapters/AFire_illuminatetritis1223.fa"
+    adapters_bb = Path(config.datadir) / "contam/adapters/bbmap_adapters.fa"
     try:
         params = config.step_params["trim_adapters"]
         bbduk(
@@ -1101,6 +1108,7 @@ def merge_reads(
             simd=True,  # assumes simd support, avx256 and java >=17 are required.
             outadapter=config.temp_dir
             / f"out_adapter_merged_{config.file_name}.txt",
+            strict="true",
         )
         output_tracker.add_file(
             str(output_file),

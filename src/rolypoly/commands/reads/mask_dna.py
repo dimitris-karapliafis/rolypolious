@@ -5,12 +5,12 @@ from pathlib import Path
 import mappy as mp
 import rich_click as click
 from bbmapy import bbmap, bbmask, kcompress
-from rich.console import Console
+# from rich.console import Console
 
 from rolypoly.utils.bio.alignments import calculate_percent_identity
-from rolypoly.utils.bio.interval_ops import mask_sequence_mp
-from rolypoly.utils.various import ensure_memory
-
+from rolypoly.utils.bio.interval_ops import mask_sequence_mp, mask_nuc_range
+from rolypoly.utils.various import ensure_memory, run_command_comp #TODO: Replace sp.run with run_command_comp.
+from rolypoly.utils.logging.loggit import get_logger
 global datadir
 datadir = Path(
     os.environ.get("ROLYPOLY_DATA", "")
@@ -28,23 +28,15 @@ datadir = Path(
     help="Attempt to kcompress.sh the masked file",
 )
 @click.option("-i", "--input", required=True, help="Input fasta file")
-@click.option(
-    "-F", "--mmseqs", is_flag=True, help="use mmseqs2 instead of bbmap.sh"
-)
-@click.option(
-    "-lm", "--low-mem", is_flag=True, help="use minimap2 instead of bbmap.sh"
-)
-@click.option(
-    "-bt", "--bowtie", is_flag=True, help="use bowtie1 instead of bbmap.sh"
-)
+@click.option("-a", "--aligner", required=False,default="mmseqs2", help="Which tool to use for identifying shared sequence (minimap2, mmseqs2, diamond, bowtie1, bbmap)")
 @click.option(
     "-r",
     "--reference",
-    default=datadir / "masking/masking/RVMT_NCBI_Ribo_Japan_for_masking.fasta",
+    default=datadir / "contam/masking/combined_entropy_masked.fasta",
     help="Provide an input fasta file to be used for masking, instead of the pre-generated collection of RNA viral sequences",
 )
 def mask_dna(
-    threads, memory, output, flatten, input, mmseqs, low_mem, bowtie, reference
+    threads, memory, output, flatten, input, aligner, reference
 ):
     """Mask an input fasta file for sequences that could be RNA viral (or mistaken for such).
 
@@ -54,47 +46,47 @@ def mask_dna(
       output: (str) Output file name
       flatten: (bool) Attempt to kcompress.sh the masked file
       input: (str) Input fasta file
-      mmseqs: (bool) use mmseqs2 instead of bbmap.sh
-      low_mem: (bool) use minimap2 instead of bbmap.sh
-      bowtie: (bool) use bowtie1 instead of bbmap.sh
+      aligner: (str) Which tool to use for identifying shared sequence (minimap2, mmseqs2, diamond, bowtie1, bbmap)
       reference: (str) Provide an input fasta file to be used for masking, instead of the pre-generated collection of RNA viral sequences
 
     Returns:
       None
     """
     import subprocess as sp
-
-    console = Console(width=150)
+    logger = get_logger()
 
     input_file = Path(input).resolve()
     output_file = Path(output).resolve()
+    aligner = str(aligner).lower()
+    if aligner not in ["minimap2", "mmseqs2", "diamond", "bowtie1", "bbmap"]:
+        logger.error(f"{aligner} not recognised as one of minimap2, mmseqs2, diamond, bowtie1 or bbmap")
+        exit
     memory = ensure_memory(memory)["giga"]
     reference = Path(reference).absolute().resolve()
     tmpdir = str(output_file.parent) + "/tmp"
 
-    try:
+    try:    
         Path.mkdir(Path(tmpdir), exist_ok=True)
     except:
-        console.print(f"couldn't create {tmpdir}")
-        exit(123)
+        exit(123) # one day, figure out what error codes to return...
 
-    if low_mem:
-        console.print("Using minimap2 (low memory mode)")
+    if aligner == "minimap2":
+        logger.info("Using minimap2 (low memory mode)")
 
         # Create a mappy aligner object
-        aligner = mp.Aligner(
-            str(reference), k=11, n_threads=threads, best_n=150
+        mpaligner = mp.Aligner(
+            str(reference), k=11, n_threads=threads, best_n=15000,
         )
-        if not aligner:
+        if not mpaligner:
             raise Exception("ERROR: failed to load/build index")
 
         # Perform alignment, write results to SAM file, and mask sequences
         masked_sequences = {}
         for name, seq, qual in mp.fastx_read(str(input_file)):
             masked_sequences[name] = seq
-            for hit in aligner.map(seq):
-                percent_id = calculate_percent_identity(hit.cigar_str, hit.NM)
-                console.print(f"{percent_id}")
+            for hit in mpaligner.map(seq):
+                percent_id = calculate_percent_identity(hit.cigar_str, hit.NM) # this make some assumptions
+                logger.info(f"{percent_id}")
                 if percent_id > 70:
                     masked_sequences[name] = mask_sequence_mp(
                         masked_sequences[name], hit.q_st, hit.q_en, hit.strand
@@ -104,13 +96,13 @@ def mask_dna(
         with open(output_file, "w") as out_f:
             for name, seq in masked_sequences.items():
                 out_f.write(f">{name}\n{seq}\n")
-        console.print(
-            f"[green]Masking completed. Output saved to {output_file}[/green]"
+        logger.info(
+            f"Masking completed. Output saved to {output_file}"
         )
         shutil.rmtree(f"{tmpdir}", ignore_errors=True)
-        return
+        return # no sam file/bbmask needed
 
-    elif bowtie:
+    elif aligner=="bowtie1":
         index_command = [
             "bowtie-build",
             "--threads",
@@ -134,9 +126,9 @@ def mask_dna(
         ]
         sp.run(align_command, check=True)
 
-    elif mmseqs:
-        console.print(
-            "Note! using mmseqs instead of bbmap is not a tight drop in replacement."
+    elif aligner=="mmseqs2":
+        logger.info(
+            "Note! using mmseqs2 instead of bbmap is not a tight drop in replacement."
         )
         mmseqs_search_cmd = [
             "mmseqs",
@@ -156,13 +148,57 @@ def mask_dna(
             "3",
             "-v",
             "1",
+            "--headers-split-mode",
+            "1",
             "--format-mode",
             "1",
         ]
         sp.run(mmseqs_search_cmd, check=True)
 
-    else:
-        console.print("Using bbmap.sh (default)")
+    elif aligner=="diamond":
+        logger.info(
+            "Note! using diamond blastx - NOTE - SWITCHING TO A PROTEIN SEQ instead of default REFERENCE"
+        )
+        reference = reference if str(reference) != str(datadir / "contam/masking/combined_entropy_masked.fasta") else str(datadir / "contam/masking/combined_deduplicated_orfs.faa")
+        logger.info(
+            f"Note! using as reference: {reference} "
+        )
+        dimamond_search_cmd = [
+            "diamond",
+            "blastx",
+            "--query",
+            str(input_file),
+            "--db",
+            str(reference),
+            "--out",
+            f"{tmpdir}/tmp_mapped.tsv",
+            "--id",
+            "70",
+            "--subject-cover",
+            "40",
+            "--min-query-len",
+            "20",
+            "--threads",
+            str(threads),
+            "--max-target-seqs",
+            "10000000",
+            "--unal",
+            "0",
+            "--outfmt",
+            "6 qseqid qstart qend qstrand"
+        ]
+        logger.info(f"Running command: {' '.join(dimamond_search_cmd)}")
+        sp.run(dimamond_search_cmd, check=True, shell=True)
+        
+        mask_nuc_range(
+            input_fasta=str(input_file),
+            input_table=f"{tmpdir}/tmp_mapped.tsv",
+            output_fasta=output_file)
+        return
+
+
+    elif aligner == "bbmap":
+        logger.info("Using bbmap.sh")
         bbmap(
             ref=input_file,
             in_file=reference,
@@ -171,7 +207,10 @@ def mask_dna(
             overwrite="true",
             threads=threads,
             Xmx=memory,
+            simd="true"
         )
+    
+    logger.info(f"Finished running aligner {aligner}")
 
     # Mask using the sam files
     bbmask(
@@ -199,6 +238,6 @@ def mask_dna(
         )
         os.rename(f"{output_file}_flat.fa", output_file)
     shutil.rmtree("ref", ignore_errors=True)
-    console.print(
-        f"[green]Masking completed. Output saved to {output_file}[/green]"
+    logger.info(
+        f"Masking completed. Output saved to {output_file}"
     )

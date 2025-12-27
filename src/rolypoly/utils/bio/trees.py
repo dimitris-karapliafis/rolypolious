@@ -563,6 +563,7 @@ class TaxonomyTree:
             'distance_distribution_leaves': defaultdict(int),
             'unmatched_tax_ids': []
         }
+        print(f"Search constraints: max_distance={max_distance}, max_rank='{max_rank}'\n")
         
         for tax_id in tax_ids:
             result = self.find_nearest_with_data_unified(
