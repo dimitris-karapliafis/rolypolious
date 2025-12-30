@@ -807,6 +807,162 @@ def mask_nuc_range(
             out_f.write(f">{current_id}\n{current_seq}\n")
 
 
+def mask_nuc_range_from_sam(
+    input_fasta: str, input_sam: str, output_fasta: str
+) -> None:
+    """Mask nucleotide sequences in a FASTA file based on provided SAM. 
+        All sequences in ranges from the input fasta that are aligned in the SAM will be replaced by N's.
+
+    Args:
+        input_fasta (str): Path to the input FASTA file
+        input_sam (str): Path to the SAM file with the alignments to mask
+        output_fasta (str): Path to the output FASTA file
+
+    Note:
+        Handles both forward and reverse strand masking.
+    """
+    from .sequences import revcomp
+    import re
+    from intervaltree import IntervalTree as itree  # assumed available as in other functions
+    from rich.progress import track
+    from rolypoly.utils.logging.loggit import get_logger
+    logger = get_logger()
+
+    # Parse SAM and collect reference intervals (1-based inclusive, with strand)
+    ranges = {}
+    with open(input_sam, "r") as f:
+        for line in f:
+            if line.startswith("@"):
+                continue
+            parts = line.rstrip("\n").split("\t")
+            if len(parts) < 6:
+                continue
+            try:
+                flag = int(parts[1])
+            except Exception:
+                continue
+            rname = parts[2]
+            if rname == "*" or rname == "":
+                continue
+            try:
+                pos = int(parts[3])
+            except Exception:
+                continue
+            cigar = parts[5]
+            if cigar == "*":
+                continue
+
+            # Compute reference-consuming length from CIGAR
+            ref_consumed = 0
+            for m in re.finditer(r"(\d+)([MIDNSHP=XB])", cigar):
+                clen = int(m.group(1))
+                op = m.group(2)
+                if op in ("M", "D", "N", "=", "X"):
+                    ref_consumed += clen
+
+            if ref_consumed <= 0:
+                continue
+
+            start = pos
+            stop = pos + ref_consumed - 1
+            strand = "-" if (flag & 16) else "+"
+            ranges.setdefault(rname, []).append((start, stop, strand))
+
+    # Merge overlapping intervals per reference and strand using intervaltree
+    merged = {}
+    for rname, lst in ranges.items():
+        # Separate by strand
+        by_strand = {"+": [], "-": []}
+        for s, e, strand in lst:
+            by_strand[strand].append((s, e))
+        merged[rname] = {}
+        for strand, intervals in by_strand.items():
+            if not intervals:
+                continue
+            tree = itree()
+            for s, e in intervals:
+                tree.addi(s, e + 1)
+            tree.merge_overlaps()
+            merged_intervals = [(iv.begin, iv.end - 1) for iv in sorted(tree)]
+            merged[rname][strand] = merged_intervals
+
+    # Count total records with ranges for progress
+    records_with_ranges = [rid for rid in merged if merged[rid].get("+") or merged[rid].get("-")]
+    total_records = len(records_with_ranges)
+
+    # Read input FASTA and write masked sequences
+    with open(input_fasta, "r") as in_f, open(output_fasta, "w") as out_f:
+        current_id = ""
+        current_seq_parts = []
+        processed = 0
+        for line in in_f:
+            if line.startswith(">"):
+                if current_id:
+                    seq_str = "".join(current_seq_parts)
+                    if current_id in merged:
+                        for strand in ("+", "-"):
+                            intervals = merged[current_id].get(strand, [])
+                            if not intervals:
+                                continue
+                            # If strand is '-', mask on revcomp, then revcomp back
+                            if strand == "+":
+                                for s, e in intervals:
+                                    if s > e:
+                                        s, e = e, s
+                                    seq_str = seq_str[: s - 1] + "N" * (e - s + 1) + seq_str[e:]
+                            else:
+                                # Mask on revcomp
+                                rc_seq = revcomp(seq_str)
+                                seqlen = len(seq_str)
+                                for s, e in intervals:
+                                    if s > e:
+                                        s, e = e, s
+                                    # Convert 1-based coordinates to revcomp
+                                    rc_s = seqlen - e + 1
+                                    rc_e = seqlen - s + 1
+                                    if rc_s > rc_e:
+                                        rc_s, rc_e = rc_e, rc_s
+                                    rc_seq = rc_seq[: rc_s - 1] + "N" * (rc_e - rc_s + 1) + rc_seq[rc_e:]
+                                seq_str = revcomp(rc_seq)
+                        processed += 1 if (merged[current_id].get("+") or merged[current_id].get("-")) else 0
+                        if processed % 10 == 0 or processed == total_records:
+                            logger.info(f"[mask_nuc_range_from_sam] Processed {processed}/{total_records} records with ranges.")
+                    out_f.write(f">{current_id}\n{seq_str}\n")
+                current_id = line[1:].strip()
+                current_seq_parts = []
+            else:
+                current_seq_parts.append(line.strip())
+
+        # last record
+        if current_id:
+            seq_str = "".join(current_seq_parts)
+            if current_id in merged:
+                for strand in ("+", "-"):
+                    intervals = merged[current_id].get(strand, [])
+                    if not intervals:
+                        continue
+                    if strand == "+":
+                        for s, e in intervals:
+                            if s > e:
+                                s, e = e, s
+                            seq_str = seq_str[: s - 1] + "N" * (e - s + 1) + seq_str[e:]
+                    else:
+                        rc_seq = revcomp(seq_str)
+                        seqlen = len(seq_str)
+                        for s, e in intervals:
+                            if s > e:
+                                s, e = e, s
+                            rc_s = seqlen - e + 1
+                            rc_e = seqlen - s + 1
+                            if rc_s > rc_e:
+                                rc_s, rc_e = rc_e, rc_s
+                            rc_seq = rc_seq[: rc_s - 1] + "N" * (rc_e - rc_s + 1) + rc_seq[rc_e:]
+                        seq_str = revcomp(rc_seq)
+                processed += 1 if (merged[current_id].get("+") or merged[current_id].get("-")) else 0
+                logger.info(f"[mask_nuc_range_from_sam] Processed {processed}/{total_records} records with ranges.")
+            out_f.write(f">{current_id}\n{seq_str}\n")
+
+
 def main(**kwargs):
     pass
     consolidate_hits(**kwargs)

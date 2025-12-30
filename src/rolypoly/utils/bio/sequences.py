@@ -149,7 +149,8 @@ def filter_fasta_by_headers(
     output_file: str,
     wrap: bool = False,
     invert: bool = False,
-) -> None:
+    return_counts: bool = False,
+) -> Union[None, Dict[str, int]]:
     """Filter sequences in a FASTA file based on their headers.
 
     Extracts sequences whose headers match (or don't match if inverted) any of
@@ -162,10 +163,10 @@ def filter_fasta_by_headers(
         output_file (str): Path to write filtered sequences
         wrap (bool, optional): If True, match headers that contain the patterns as substrings (substring match). Default False (exact match).
         invert (bool, optional): If True, keep sequences that don't match.
+        return_counts (bool, optional): If True, return counts of filtered, and written records.
     """
     import gzip
     from rolypoly.utils.various import is_gzipped
-
 
     # Load headers and optimize for lookup pattern
     headers_exact = set()  # For exact matches
@@ -252,6 +253,11 @@ def filter_fasta_by_headers(
                         print(f"Processed {records_processed} records, written {records_written}")
 
         out_f.close()
+        if return_counts:
+            return {
+                "records_processed": records_processed,
+                "records_written": records_written,
+            }
 
     except Exception as e:
         if "out_f" in locals():

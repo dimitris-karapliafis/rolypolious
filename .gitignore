@@ -59,7 +59,7 @@ coverage.xml
 *.cover
 *.py,cover
 cover/
-tests/
+testing_folder/
 .cache/
 .ruff_cache/
 .tox/
@@ -122,8 +122,9 @@ target/
 
 # Miscellaneous project files
 misc/
-notebooks/
+# notebooks/
 reference.fasta
 .crush
 package.json
 .gitignore
+**taxdump**

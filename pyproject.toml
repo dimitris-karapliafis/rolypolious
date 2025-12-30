@@ -90,7 +90,7 @@ pigz = ">=2.8,<3"
 spades = ">=4.2.0,<5"
 megahit = ">=1.2.9,<2"
 plass = ">=5.cf8933,<6"
-mmseqs2 = ">=17.b804f,<18"
+mmseqs2 = ">=17.b804f,<19"
 
 [tool.pixi.feature.annotation-rna.dependencies]
 # For RNA annotation commands (annotate-rna)
@@ -102,12 +102,12 @@ trnascan-se = ">=2.0.12,<3"
 [tool.pixi.feature.annotation-prot.dependencies]
 # For protein annotation commands (annotate-prot)
 # hmmer = ">=3.4,<4"
-mmseqs2 = ">=17.b804f,<18"
+mmseqs2 = ">=17.b804f,<19"
 diamond = ">=2.1.12,<3"
 
 [tool.pixi.feature.identify.dependencies]
 # For virus identification commands (marker-search, search-viruses)
-mmseqs2 = ">=17.b804f,<18"
+mmseqs2 = ">=18.8cc5c,<19"
 hmmer = ">=3.4,<4"
 diamond = ">=2.1.12,<3"
 

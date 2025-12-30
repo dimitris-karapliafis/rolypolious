@@ -171,34 +171,25 @@ def process_reads(
     ]
 
     current_input = fastq_file
-    from rich.spinner import SPINNERS  # type: ignore
 
-    SPINNERS["myspinner"] = {"interval": 5500, "frames": ["🦠 ", "🧬 ", "🔬 ", "⏣ ", "🧿 "]}  # type: ignore
-    # SPINNERS["myspinner"] = {"interval": 200, "frames": [
-	# 		"◜",
-	# 		"◠",
-	# 		"◝",
-	# 		"◞",
-	# 		"◡",
-	# 		"◟"
-	# 	]}  # type: ignore
-    # SPINNERS["myspinner"] = {"interval": 200, "frames":  [
-	# 		" 🧑⚽️       🧑 ",
-	# 		"🧑  ⚽️      🧑 ",
-	# 		"🧑   ⚽️     🧑 ",
-	# 		"🧑    ⚽️    🧑 ",
-	# 		"🧑     ⚽️   🧑 ",
-	# 		"🧑      ⚽️  🧑 ",
-	# 		"🧑       ⚽️🧑  ",
-	# 		"🧑      ⚽️  🧑 ",
-	# 		"🧑     ⚽️   🧑 ",
-	# 		"🧑    ⚽️    🧑 ",
-	# 		"🧑   ⚽️     🧑 ",
-	# 		"🧑  ⚽️      🧑 "
-	# 	]}  # type: ignore
+    from rich.spinner import SPINNERS  # type: ignore
+    config.logger.info("Starting read processing    ")
+    SPINNERS["myspinner"] = {"interval": 2500 if config.log_level != 10 else 122500, "frames": ["🦠 ", "🧬 ", "🔬 "]}  # type: ignore
+    # SPINNERS["myspinner"] = {"interval": 150 if config.log_level != 10 else 150, "frames":
+    # [
+    #     "🛸\u3000\u3000\u3000 ",
+    #     "🛸\u3000\u3000\u3000 ",
+    #     "🛸\u3000\u3000🐄 ",
+    #     "🛸. . . 🐄 ",
+    #     "🛸. .🐄. . ",
+    #     "🛸🐄. . . ",
+    #     "🛸✨\u3000\u3000 ",
+    #     "🛸\u3000\u3000\u3000 "
+    # ]
+    # }
 
     with console.status(
-        "[bold green] Working on     ", spinner="myspinner"
+        "[bold green] Working on     ", spinner="myspinner" #
     ) as status:
         for step in steps:
             step_name = (
@@ -731,8 +722,8 @@ def decontaminate_rrna(
     output_file = (
         config.temp_dir / f"decontaminate_rrna_{config.file_name}.fq.gz"
     )
-    rrna_fas1 = Path(config.datadir) / "contam/rrna/ncbi_rRNA_all_sequences.fasta"  # type: ignore
-    rrna_fas2 = Path(config.datadir) / "contam/rrna/SILVA_138.2_SSURef_NR99_tax_silva.fasta"  # type: ignore
+    rrna_fas1 = Path(config.datadir) / "contam/rrna/ncbi_rRNA_all_sequences_masked_entropy.fasta"  # type: ignore
+    rrna_fas2 = Path(config.datadir) / "contam/rrna/silva_rRNA_all_sequences_masked_entropy.fasta"  # type: ignore
     try:
         params = config.step_params["decontaminate_rrna"]
         bbduk(
@@ -802,7 +793,7 @@ def fetch_and_mask_genomes(config: ReadFilterConfig) -> Union[str, Path]:
         # Run fetch_genomes_from_stats_file directly in the genomes directory with absolute paths
         fetch_genomes_from_stats_file(
             stats_file=str(abs_tmp_stats),
-            mapping_path=str(mapping_path),
+            taxid_lookup_path=str(mapping_path),
             output_file=str(abs_gbs_file),
             max_genomes=config.max_genomes,
             threads=config.threads,
@@ -830,6 +821,7 @@ def fetch_and_mask_genomes(config: ReadFilterConfig) -> Union[str, Path]:
             "output": str(
                 fetched_dna_dir / f"masked_gbs_50m_{config.file_name}.fasta"
             ),
+            "mask_low_complexity": True,
             "flatten": False,
             "input": str(abs_gbs_file),
         }

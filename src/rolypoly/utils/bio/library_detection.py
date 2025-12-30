@@ -297,7 +297,7 @@ def determine_fastq_type(
         ).unnest("header")
         logger.debug(f"example read headers: {fastq_df.select(pl.col('header')).head(5).to_series().to_list()}")
         # Check suffix patterns for paired-end indicators
-        logger.debug(f"header_count: {header_count}")
+        # logger.debug(f"header_count: {header_count}")
         pair_1_count = header_count.filter(
             pl.col("header").is_in([" 1", "/1"])
         )["count"].sum()

@@ -5,7 +5,7 @@ from pathlib import Path
 
 import requests
 
-from rolypoly.utils.bio.genome_fetch import fetch_genomes_from_mapping
+from rolypoly.utils.bio.genome_fetch import fetch_genomes_by_taxid
 
 
 def download_file(url, filename):
@@ -157,9 +157,9 @@ run_command(
 )
 
 # host genome - https://www.ncbi.nlm.nih.gov/nuccore/NC_000913.3
-fetch_genomes_from_mapping(
+fetch_genomes_by_taxid(
     taxids=[9606],
-    mapping_path=str(datadir / "contam/rrna/rrna_to_genome_mapping.parquet"),
+    taxid_lookup_path=str(datadir / "contam/rrna/rrna_to_genome_mapping.parquet"),
     output_file="inputs/hosts/human_genome.fasta",
     prefer_transcript=False,
     exclude_viral=False,
@@ -272,9 +272,9 @@ shutil.move(
 
 
 # source 6 - all orthorna viruses from ncbi
-fetch_genomes_from_mapping(
+fetch_genomes_by_taxid(
     taxids=[2732396],
-    mapping_path=str(datadir / "contam/rrna/rrna_to_genome_mapping.parquet"),
+    taxid_lookup_path=str(datadir / "contam/rrna/rrna_to_genome_mapping.parquet"),
     output_file="inputs/contigs/orthorna_viruses.fasta",
     prefer_transcript=False,
     exclude_viral=False,

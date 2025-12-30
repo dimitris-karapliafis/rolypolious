@@ -2,9 +2,7 @@ import os
 import shutil
 from pathlib import Path
 
-import mappy as mp
 import rich_click as click
-from bbmapy import bbmap, bbmask, kcompress
 # from rich.console import Console
 
 from rolypoly.utils.bio.alignments import calculate_percent_identity
@@ -13,7 +11,7 @@ from rolypoly.utils.various import ensure_memory, run_command_comp #TODO: Replac
 from rolypoly.utils.logging.loggit import get_logger
 global datadir
 datadir = Path(
-    os.environ.get("ROLYPOLY_DATA", "")
+    os.environ.get("ROLYPOLY_DATA_DIR", "")
 )  # THIS IS A HACK, I need to figure out how to set the datadir if code is accessed from outside the package (currently it's set in the rolypoly.py and exported into the env).
 
 
@@ -28,15 +26,25 @@ datadir = Path(
     help="Attempt to kcompress.sh the masked file",
 )
 @click.option("-i", "--input", required=True, help="Input fasta file")
-@click.option("-a", "--aligner", required=False,default="diamond", help="Which tool to use for identifying shared sequence (minimap2, mmseqs2, diamond, bowtie1, bbmap)")
+@click.option("-a", "--aligner", required=False,default="mmseqs2", help="Which tool to use for identifying shared sequence (minimap2, mmseqs2, diamond, bowtie1, bbmap)")
+@click.option(
+    "-mlc","--mask-low-complexity",
+    is_flag=True,
+    help="Whether to mask low complexity regions using bbduks entropy masking",
+)
 @click.option(
     "-r",
     "--reference",
     default=datadir / "contam/masking/combined_entropy_masked.fasta",
     help="Provide an input fasta file to be used for masking, instead of the pre-generated collection of RNA viral sequences",
 )
+@click.option(
+    "--tmpdir",
+    default=None,
+    help="Temporary directory to use (default: output file's parent/tmp - if you have enough RAM, you can set this to /dev/shm/ or /tmp/ for faster I/O)",
+)
 def mask_dna(
-    threads, memory, output, flatten, input, aligner, reference
+    threads, memory, output, flatten, input, aligner, reference, mask_low_complexity,tmpdir
 ):
     """Mask an input fasta file for sequences that could be RNA viral (or mistaken for such).
 
@@ -48,12 +56,13 @@ def mask_dna(
       input: (str) Input fasta file
       aligner: (str) Which tool to use for identifying shared sequence (minimap2, mmseqs2, diamond, bowtie1, bbmap)
       reference: (str) Provide an input fasta file to be used for masking, instead of the pre-generated collection of RNA viral sequences
+      mask_low_complexity: (bool) Whether to mask low complexity regions using bbduks entropy masking
 
     Returns:
       None
     """
-    import subprocess as sp
     logger = get_logger()
+    logger.info(f"datadir used: {datadir}")
 
     input_file = Path(input).resolve()
     output_file = Path(output).resolve()
@@ -61,18 +70,17 @@ def mask_dna(
     if aligner not in ["minimap2", "mmseqs2", "diamond", "bowtie1", "bbmap"]:
         logger.error(f"{aligner} not recognised as one of minimap2, mmseqs2, diamond, bowtie1 or bbmap")
         exit
+    needs_bbmask_only = aligner in ["bowtie1", "bbmap", "mmseqs2"]
     memory = ensure_memory(memory)["giga"]
     reference = Path(reference).absolute().resolve()
-    tmpdir = str(output_file.parent) + "/tmp"
-
-    try:    
-        Path.mkdir(Path(tmpdir), exist_ok=True)
-    except:
-        exit(123) # one day, figure out what error codes to return...
+    if tmpdir is None:
+        tmpdir = output_file.parent / "tmp_mask_dna"
+    tmpdir = Path(tmpdir).absolute().resolve()
+    Path.mkdir(Path(tmpdir), exist_ok=True)
 
     if aligner == "minimap2":
         logger.info("Using minimap2 (low memory mode)")
-
+        import mappy as mp
         # Create a mappy aligner object
         mpaligner = mp.Aligner(
             str(reference), k=11, n_threads=threads, best_n=15000,
@@ -93,16 +101,15 @@ def mask_dna(
                     )
 
         # Write masked sequences to output file
-        with open(output_file, "w") as out_f:
+        with open(f"{tmpdir}/tmp_masked.fasta", "w") as out_f:
             for name, seq in masked_sequences.items():
                 out_f.write(f">{name}\n{seq}\n")
         logger.info(
-            f"Masking completed. Output saved to {output_file}"
+            f"Masking completed. Output saved to {tmpdir}/tmp_masked.fasta"
         )
         shutil.rmtree(f"{tmpdir}", ignore_errors=True)
-        return # no sam file/bbmask needed
-
     elif aligner=="bowtie1":
+        import subprocess as sp
         index_command = [
             "bowtie-build",
             "--threads",
@@ -125,36 +132,41 @@ def mask_dna(
             f"{tmpdir}/tmp_mapped.sam",
         ]
         sp.run(align_command, check=True)
-
     elif aligner=="mmseqs2":
-        logger.info(
-            "Note! using mmseqs2 instead of bbmap is not a tight drop in replacement."
+        # logger.info(
+        #     "Note! using mmseqs2 instead of bbmap is not a tight drop in replacement."
+        # )
+        # v=1
+        v=3 if logger.level == "DEBUG" or logger.level == 10 else 1
+        # v=3
+        run_command_comp(
+            assign_operator=" ",
+            base_cmd="mmseqs easy-linsearch",
+            check_output=True,
+            output_file=f"{tmpdir}/tmp_mapped.sam",
+            positional_args=[
+                str(reference),
+                str(input_file),
+                f"{tmpdir}/tmp_mapped.sam",
+                f"{tmpdir}"],
+            positional_args_location="start",
+            param_sep=" ",
+            params={
+                "min-seq-id":str(0.7),
+                "min-aln-len":str(80),
+                # "subject-cover": "40",
+                "threads": threads,
+                "format-mode":1,
+                # "headers-split-mode": "1",
+                # "alt-ali":123123123,
+                "search-type":"3",
+                "v": v,
+                "max-accept": "1231",
+                # "max-seqs": "1231",
+                # "dbtype": 2,
+                "a": ""
+            }
         )
-        mmseqs_search_cmd = [
-            "mmseqs",
-            "easy-search",
-            str(reference),
-            str(input_file),
-            f"{tmpdir}/tmp_mapped.sam",
-            f"{tmpdir}",
-            "--min-seq-id",
-            "0.7",
-            "--min-aln-len",
-            "80",
-            "--threads",
-            str(threads),
-            "-a",
-            "--search-type",
-            "3",
-            "-v",
-            "1",
-            "--headers-split-mode",
-            "1",
-            "--format-mode",
-            "1",
-        ]
-        sp.run(mmseqs_search_cmd, check=True)
-
     elif aligner=="diamond":
         logger.info(
             "Note! using diamond blastx - NOTE - SWITCHING TO A PROTEIN SEQ instead of default REFERENCE"
@@ -163,7 +175,7 @@ def mask_dna(
         logger.info(
             f"Note! using as reference: {reference} "
         )
-        test = run_command_comp(
+        run_command_comp(
             assign_operator=" ",
             base_cmd="diamond blastx",
             positional_args=["qseqid qstart qend qstrand"],
@@ -181,42 +193,15 @@ def mask_dna(
                 "outfmt": "6"
             }
         )
-        # dimamond_search_cmd = [
-        #     "diamond",
-        #     "blastx",
-        #     "--query",
-        #     str(input_file),
-        #     "--db",
-        #     str(reference),
-        #     "--out",
-        #     f"{tmpdir}/tmp_mapped.tsv",
-        #     "--id",
-        #     "70",
-        #     "--subject-cover",
-        #     "40",
-        #     "--min-query-len",
-        #     "20",
-        #     "--threads",
-        #     str(threads),
-        #     "--max-target-seqs",
-        #     "10000000",
-        #     "--unal",
-        #     "0",
-        #     "--outfmt",
-        #     "6 "
-        # ]
-        # logger.info(f"Running command: {' '.join(dimamond_search_cmd)}")
-        # sp.run(dimamond_search_cmd, check=True, shell=True)
-        
+        logger.info(f"Finished diamond blastx step")
         mask_nuc_range(
             input_fasta=str(input_file),
             input_table=f"{tmpdir}/tmp_mapped.tsv",
-            output_fasta=output_file)
-        return
-
-
+            output_fasta=f"{tmpdir}/tmp_masked.fasta")
+        # TODO: Check if diamond blastx reports qstrand needs to be adjusted based on frame? 
     elif aligner == "bbmap":
         logger.info("Using bbmap.sh")
+        from bbmapy import bbmap
         bbmap(
             ref=input_file,
             in_file=reference,
@@ -229,24 +214,46 @@ def mask_dna(
         )
     
     logger.info(f"Finished running aligner {aligner}")
+    logger.info(f"beginning bbmask (masking + entropy) step")
 
-    # Mask using the sam files
-    bbmask(
-        in_file=input_file,
-        out=output_file,
-        sam=f"{tmpdir}/tmp_mapped.sam",
-        entropy=0.2,
-        overwrite="true",
-        threads=threads,
-        Xmx=memory,
-    )
+    if needs_bbmask_only:
+    # Mask using the sam files, for aligners that need it...
+        # approximate to bbmask.sh in=input.fasta out=output.fasta sam=mapped.sam overwrite=true threads=8 Xmx=16g
+        logger.debug(f"equivalent to bbmask.sh in={input_file} out={tmpdir}/tmp_masked.fasta sam={tmpdir}/tmp_mapped.sam overwrite=true threads={threads} Xmx={memory}")
+        from bbmapy import bbmask
+        bbmask(
+            in_file=input_file,
+            out=f"{tmpdir}/tmp_masked.fasta",
+            sam=f"{tmpdir}/tmp_mapped.sam",
+            overwrite="true",
+            threads=threads,
+            Xmx=memory,
+        )
+        logger.info(f"Finished bbmask step")
 
-    shutil.rmtree(str(tmpdir), ignore_errors=True)
+    last_file = f"{tmpdir}/tmp_masked.fasta"
+
+    if mask_low_complexity:
+        logger.info(f"Proceeding to entropy masking step")
+        from bbmapy import bbduk
+    # # Apply entropy masking
+        bbduk(
+            in1=last_file,
+            out=f"{tmpdir}/tmp_masked_mle.fasta",
+            entropy=0.4,
+            entropyk=4,
+            entropywindow=24,
+            maskentropy=True,
+            ziplevel=9,
+        )
+        last_file = f"{tmpdir}/tmp_masked_mle.fasta"
+        logger.info(f"Finished entropy masking step")
 
     if flatten:
+        from bbmapy import kcompress
         kcompress(
-            in_file=output_file,
-            out=f"{output_file}_flat.fa",
+            in_file=last_file,
+            out=f"{tmpdir}/tmp_masked_mle_flat.fa",
             fuse=2000,
             k=31,
             prealloc="true",
@@ -254,8 +261,12 @@ def mask_dna(
             threads=threads,
             Xmx=memory,
         )
-        os.rename(f"{output_file}_flat.fa", output_file)
+        last_file = f"{tmpdir}/tmp_masked_mle_flat.fa"
+
+    os.rename(f"{last_file}", output_file) #this is like mv i think...
     shutil.rmtree("ref", ignore_errors=True)
+    shutil.rmtree(str(tmpdir), ignore_errors=True)
+
     logger.info(
         f"Masking completed. Output saved to {output_file}"
     )

@@ -9,7 +9,7 @@ Usage:
     # Fetch genomes for a list of taxids
     fetch_genomes_from_mapping(
         taxids=[9606, 10090],
-        mapping_path="data/contam/rrna/rrna_to_genome_mapping.parquet",
+        taxid_lookup_path="data/contam/rrna/rrna_to_genome_mapping.parquet",
         output_file="genomes.fasta",
         prefer_transcript=True
     )
@@ -17,7 +17,7 @@ Usage:
     # Drop-in replacement for old fetch_genomes() # internally it calls the one above...
     fetch_genomes_from_stats_file(
         stats_file="bbmap_stats.txt",
-        mapping_path="mapping.parquet",
+        taxid_lookup_path="mapping.parquet",
         output_file="genomes.fasta",
         max_genomes=5
     )
@@ -36,66 +36,54 @@ from urllib.parse import urlparse
 from urllib.request import urlretrieve
 
 import polars as pl
+from requests import get
 from rich.progress import Progress, SpinnerColumn, BarColumn, TextColumn, TimeElapsedColumn, TaskID
 
 from rolypoly.utils.bio.sequences import remove_duplicates
 from rolypoly.utils.logging.loggit import get_logger
-
-
-def load_rrna_genome_mapping(mapping_path: str) -> pl.DataFrame:
-    """Load the pre-computed rRNA to genome mapping table.
-    
-    Args:
-        mapping_path: Path to the parquet file containing mappings
-        
-    Returns:
-        Polars DataFrame with mapping information
-    """
-    if not Path(mapping_path).exists():
-        raise FileNotFoundError(
-            f"Mapping file not found: {mapping_path}\n"
-            "Please run the rrna_genome_mapping_taxonomy notebook to generate it."
-        )
-    
-    return pl.read_parquet(mapping_path)
-
+global data_dir, taxid_lookup_path
+data_dir = Path(
+    os.environ.get("ROLYPOLY_DATA", "")
+)
+taxid_lookup_path = data_dir / "contam/rrna/taxid_to_ftp_lookup.parquet"
 
 def get_ftp_path_for_taxid(
     taxid: int, 
-    mapping_df: pl.DataFrame
-) -> Optional[str]:
-    """Get the best FTP path for a given taxonomy ID.
+    mapping_df: pl.DataFrame,
+    get_relative_for_missing: bool = False
+) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+    """Get the best FTP path for a given taxonomy ID with relationship info.
     
     Args:
         taxid: NCBI taxonomy ID
-        mapping_df: The mapping DataFrame
+        mapping_df: The mapping DataFrame (simplified format)
+        get_relative_for_missing: If False, only use 'self' data; if True, allow ancestor/relative
         
     Returns:
-        FTP path string, or None if no mapping found
+        Tuple of (ftp_path, relationship, reference_name) or (None, None, None) if no mapping found
+        relationship: 'self' | 'ancestor' | 'relative' | None
     """
     # Query the mapping for this taxid
     result = mapping_df.filter(pl.col("query_tax_id") == taxid)
     
     if result.height == 0:
-        return None
+        return None, None, None
     
     row = result.row(0, named=True)
+    relationship = row.get("relationship")
+    ftp_path = row.get("ftp_path")
+    reference_name = row.get("reference_name")
     
-    # Priority: self > ancestor > leaf
-    if row.get("self_has_data"):
-        # For self, we need to look up in the original assembly data
-        # This would require joining with the assembly summary
-        pass
+    # If self data available, use it
+    if relationship == "self" and ftp_path:
+        return ftp_path, relationship, reference_name
     
-    # Try ancestor first if it has data
-    if row.get("ancestor_ftp_path"):
-        return row["ancestor_ftp_path"]
+    # If allowing relatives, try ancestor/relative
+    if get_relative_for_missing and relationship in ["ancestor", "relative"] and ftp_path:
+        return ftp_path, relationship, reference_name
     
-    # Fall back to leaf relative
-    if row.get("leaf_ftp_path"):
-        return row["leaf_ftp_path"]
-    
-    return None
+    # No suitable mapping found
+    return None, None, None
 
 
 def download_from_ftp_path(
@@ -171,12 +159,13 @@ def download_from_ftp_path(
     return None
 
 
-def fetch_genomes_from_mapping(
+def fetch_genomes_by_taxid(
     taxids: List[int],
-    mapping_path: str,
+    taxid_lookup_path: str,
     output_file: str,
     temp_dir: Optional[str] = None,
     prefer_transcript: bool = True,
+    get_relative_for_missing: bool = True,
     threads: int = 1,
     overwrite: bool = False,
     exclude_viral: bool = True,
@@ -190,18 +179,20 @@ def fetch_genomes_from_mapping(
     
     Args:
         taxids: List of NCBI taxonomy IDs
-        mapping_path: Path to the rRNA genome mapping parquet file
+        taxid_lookup_path: Path to the rRNA genome mapping parquet file
         output_file: Output fasta file path
         temp_dir: Temporary directory for downloads (default: creates one in current dir)
         prefer_transcript: If True, prefer transcript files over genome files
         threads: Number of parallel downloads
         overwrite: If True, re-download existing files
         exclude_viral: If True, filter out viral sequences from final output
-        remove_lcl: clean the "lcl|" prefix from fasta headers (can cause issues if kept)
-
+        clean_headers: always true, not yet implemented as an option
+        logger: Logger instance
+        get_relative_for_missing: If True, attempt to use relative genome if no direct match found
     """
-    logger = get_logger(logger)
-    
+    if logger is None:
+        logger = get_logger(logger)
+    # breakpoint()
     # Setup directories
     if temp_dir is None:
         temp_dir = "tmp_genome_downloads"
@@ -209,22 +200,28 @@ def fetch_genomes_from_mapping(
     temp_path.mkdir(parents=True, exist_ok=True)
     
     # Load mapping
-    logger.info(f"Loading mapping from: {mapping_path}")
-    mapping_df = load_rrna_genome_mapping(mapping_path)
+    logger.debug(f"Loading mapping from: {taxid_lookup_path}")
+    mapping_df = pl.read_parquet(taxid_lookup_path)
+    
+    subdf = mapping_df.filter(pl.col("query_tax_id").is_in(list(taxids)))
+    avail_taxids = subdf.select("query_tax_id").unique().to_series().to_list()
+    unmapped_names = list(set(taxids) - set(avail_taxids))
+    logger.warning(f"Rolypoly pre-generated mapping missing for {len(unmapped_names)} taxids")
+    logger.warning(f"Examples: {unmapped_names[:5]}")
     
     # Track downloaded files
     downloaded_files: List[Path] = []
     unmapped_taxids: List[int] = []
     
     # Worker function for parallel processing
-    def process_taxid(taxid: int, progress: Optional[Progress] = None, task: Optional[TaskID] = None) -> Tuple[int, Optional[Path]]:
-        """Process a single taxid and return (taxid, downloaded_path)."""
-        ftp_path = get_ftp_path_for_taxid(taxid, mapping_df)
+    def process_taxid(taxid: int, progress: Optional[Progress] = None, task: Optional[TaskID] = None) -> Tuple[int, Optional[Path], Optional[str], Optional[str]]:
+        """Process a single taxid and return (taxid, downloaded_path, relationship, reference_name)."""
+        ftp_path, relationship, reference_name = get_ftp_path_for_taxid(taxid, mapping_df, get_relative_for_missing)
         
         if ftp_path is None:
             if progress and task is not None:
                 progress.update(task, advance=1)
-            return (taxid, None)
+            return (taxid, None, None, None)
         
         downloaded = download_from_ftp_path(
             ftp_path=ftp_path,
@@ -237,7 +234,7 @@ def fetch_genomes_from_mapping(
         if progress and task is not None:
             progress.update(task, advance=1)
         
-        return (taxid, downloaded)
+        return (taxid, downloaded, relationship, reference_name)
     
     # Process each taxid
     logger.info(f"Fetching sequences for {len(taxids)} taxids using {threads} thread(s)...")
@@ -261,13 +258,15 @@ def fetch_genomes_from_mapping(
                 for future in as_completed(futures):
                     taxid = futures[future]
                     try:
-                        result_taxid, downloaded = future.result()
+                        result_taxid, downloaded, relationship, reference_name = future.result()
                         
                         if downloaded is None:
                             unmapped_taxids.append(result_taxid)
                             logger.warning(f"No mapping found for taxid: {result_taxid}")
                         else:
                             downloaded_files.append(downloaded)
+                            if relationship != "self":
+                                logger.info(f"Taxid {result_taxid} - no direct data, using {relationship} reference")
                             
                     except Exception as e:
                         logger.error(f"Error processing taxid {taxid}: {e}")
@@ -276,13 +275,15 @@ def fetch_genomes_from_mapping(
         else:
             # Sequential processing
             for taxid in taxids:
-                result_taxid, downloaded = process_taxid(taxid, progress, task)
+                result_taxid, downloaded, relationship, reference_name = process_taxid(taxid, progress, task)
                 
                 if downloaded is None:
                     unmapped_taxids.append(result_taxid)
                     logger.warning(f"No mapping found for taxid: {result_taxid}")
                 else:
                     downloaded_files.append(downloaded)
+                    if relationship != "self":
+                        logger.info(f"Taxid {result_taxid} - no direct data, using {relationship} reference")
     # Report statistics
     logger.info(f"Downloaded {len(downloaded_files)} genome files")
     if unmapped_taxids:
@@ -326,13 +327,15 @@ def fetch_genomes_from_mapping(
         from rolypoly.utils.bio.sequences import filter_fasta_by_headers, clean_fasta_headers
         
         temp_dedup1 = str(temp_dedup) + "1"
-        filter_fasta_by_headers(
+        counts = filter_fasta_by_headers(
             str(temp_dedup),
             ["virus", "viral", "phage"],
             temp_dedup1,
             wrap=True,
             invert=True,
+            return_counts=True,
         )
+        logger.info(f"Filtered sequences: removed {counts['records_processed'] - counts['records_written']} sequences; {counts['records_written']} written, {counts['records_processed']} processed")
 
         clean_fasta_headers(
             fasta_file=temp_dedup1,
@@ -354,7 +357,7 @@ def fetch_genomes_from_mapping(
 
 def fetch_genomes_from_stats_file(
     stats_file: str,
-    mapping_path: str,
+    taxid_lookup_path: str,
     output_file: str,
     max_genomes: int = 5,
     logger=None,
@@ -362,104 +365,109 @@ def fetch_genomes_from_stats_file(
 ) -> None:
     """Fetch genomes based on a BBMap stats file, using the mapping table.
     
-    This is a drop-in replacement for the original fetch_genomes function.
+    Prioritizes taxids that have direct data available and limits to max_genomes.
+    Reports which taxids were not available and which used relative references.
+    
+    Note:
+        The reference file for the bb command needs to follow the @ notation, 
+        i.e. the first field if splitting on @, should be the ncbi taxid
     
     Args:
         stats_file: BBMap stats file with taxonomic information
-        mapping_path: Path to the rRNA genome mapping parquet file
+        taxid_lookup_path: Path to the rRNA genome mapping parquet file
         output_file: Output fasta file path
-        max_genomes: Maximum number of genomes to fetch
-        **kwargs: Additional arguments passed to fetch_genomes_from_mapping
+        max_genomes: Maximum number of genomes to fetch (from available ones)
+        **kwargs: Additional arguments passed to fetch_genomes_by_taxid
     """
-    logger = get_logger(logger)
+    if logger is None:
+        logger = get_logger(logger)
     
-    # Parse the stats file to extract taxon names
+    # Parse the stats file to extract taxon IDs
     logger.info(f"Parsing stats file: {stats_file}")
     
-    # Read the BBMap stats file (skip first 4 lines, then parse)
+    # Read the BBMap stats file (print first 3 lines, then parse from line 4)
     with open(stats_file, "r") as f:
-        lines = f.readlines()[4:]
-    
-    taxons: Set[str] = set()
-    for line in lines:
-        taxon = line.split(sep=";")[-1]
-        taxon = taxon.split(sep="\t")[0]
-        
-        # Skip unwanted taxons - in the new approach this shouldn't be necessary but keeping for safety
-        if any(
-            word in taxon.lower()
-            for word in [
-                "meta",
-                "uncultured",
-                "unidentified",
-                "synthetic",
-                "construct",
-                "coli",
-            ]
-        ):
+        lines = f.readlines()
+    for line in lines[:3]:
+        logger.info(f"{line.strip()}")
+
+    # Parse all taxons from stats file
+    all_taxons: List[int] = []
+    for line in lines[4:]:
+        taxon_str = line.split(sep="@")[0]
+        try:
+            taxon = int(taxon_str)
+            all_taxons.append(taxon)
+        except ValueError:
+            logger.warning(f"Skipping non-integer taxon entry: {taxon_str}")
             continue
+    
+    logger.info(f"Found {len(all_taxons)} taxon entries in stats file")
+    
+    # Load the mapping to check availability
+    mapping_df = pl.read_parquet(taxid_lookup_path)
+    
+    # Filter to taxons with data available
+    available_taxons = []
+    unavailable_taxons = []  # (taxid, name, relationship)
+    taxon_details = {}  # Cache mapping details for later logging
+    
+    for taxon in all_taxons:
+        result = mapping_df.filter(pl.col("query_tax_id") == taxon)
         
-        # Clean up taxon name
-        if "PREDICTED: " in taxon:
-            taxon = taxon.split(sep=": ")[1]
-        
-        # Remove rRNA-specific suffixes
-        for suffix in [" 16S", " 18S", " 28S", " small subunit ", " large subunit "]:
-            taxon = taxon.split(sep=suffix)[0]
-        
-        taxons.add(taxon)
-        
-        if len(taxons) >= max_genomes:
-            break
-    
-    logger.info(f"Found {len(taxons)} taxons to fetch")
-    
-    # Now we need to map taxon names to taxids
-    # We can do this by loading the NCBI names.dmp file
-    # OR we can use the mapping table which already has names
-    
-    # Load the mapping to get name -> taxid mapping
-    mapping_df = load_rrna_genome_mapping(mapping_path)
-    
-    # Create a reverse lookup: name -> taxid
-    name_to_taxid = {}
-    for row in mapping_df.select(["query_tax_id", "query_name"]).unique().iter_rows(named=True):
-        name_to_taxid[row["query_name"]] = row["query_tax_id"]
-    
-    # Also check ancestor and leaf names
-    for row in mapping_df.select(["ancestor_tax_id", "ancestor_name"]).filter(
-        pl.col("ancestor_name").is_not_null()
-    ).unique().iter_rows(named=True):
-        name_to_taxid[row["ancestor_name"]] = row["ancestor_tax_id"]
-    
-    for row in mapping_df.select(["leaf_tax_id", "leaf_name"]).filter(
-        pl.col("leaf_name").is_not_null()
-    ).unique().iter_rows(named=True):
-        name_to_taxid[row["leaf_name"]] = row["leaf_tax_id"]
-    
-    # Map taxon names to taxids
-    taxids: List[int] = []
-    unmapped_names: List[str] = []
-    
-    for taxon in taxons:
-        if taxon in name_to_taxid:
-            taxids.append(name_to_taxid[taxon])
-        else:
-            # Try partial matching (genus name)
-            genus = taxon.split()[0] if " " in taxon else taxon
-            if genus in name_to_taxid:
-                taxids.append(name_to_taxid[genus])
+        if result.height > 0:
+            row = result.row(0, named=True)
+            relationship = row.get("relationship")
+            ftp_path = row.get("ftp_path")
+            reference_name = row.get("reference_name")
+            query_name = row.get("query_name")
+            
+            if ftp_path and relationship:  # Has valid mapping
+                available_taxons.append(taxon)
+                taxon_details[taxon] = (query_name, relationship, reference_name)
             else:
-                unmapped_names.append(taxon)
+                # Has entry but no FTP path
+                unavailable_taxons.append((taxon, query_name, relationship))
+        else:
+            # No entry in mapping
+            unavailable_taxons.append((taxon, "<unknown>", None))
     
-    if unmapped_names:
-        logger.warning(f"Could not map {len(unmapped_names)} taxon names to taxids")
-        logger.warning(f"Examples: {unmapped_names[:5]}")
+    logger.info(f"Taxons with available data: {len(available_taxons)}")
+    logger.info(f"Taxons without available data: {len(unavailable_taxons)}")
+    
+    if unavailable_taxons:
+        logger.warning("Unavailable taxons:")
+        for taxid, name, relationship in unavailable_taxons[:10]:  # Show first 10
+            status = f"using {relationship}" if relationship else "not found"
+            logger.warning(f"  - {taxid} ({name}): {status}")
+        if len(unavailable_taxons) > 10:
+            logger.warning(f"  ... and {len(unavailable_taxons) - 10} more")
+    
+    # Take up to max_genomes from available taxons
+    taxons_to_fetch = available_taxons[:max_genomes]
+    
+    # Log relationship info only for taxons that will be fetched
+    for taxon in taxons_to_fetch:
+        if taxon in taxon_details:
+            query_name, relationship, reference_name = taxon_details[taxon]
+            if relationship != "self":
+                logger.info(
+                    f"Taxon {taxon} (is {query_name}) but not direct data available, "
+                    f"using {relationship} reference: {reference_name}"
+                )
+    
+    if not taxons_to_fetch:
+        logger.error("No taxons with available data found. Exiting.")
+        return
+    
+    logger.info(f"Fetching genomes for {len(taxons_to_fetch)} taxons (out of {len(available_taxons)} available)")
     
     # Fetch genomes for the mapped taxids
-    fetch_genomes_from_mapping(
-        taxids=taxids,
-        mapping_path=mapping_path,
+    fetch_genomes_by_taxid(
+        taxids=taxons_to_fetch,
+        get_relative_for_missing=True,
+        taxid_lookup_path=taxid_lookup_path,
         output_file=output_file,
+        logger=logger,
         **kwargs
     )

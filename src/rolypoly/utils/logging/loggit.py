@@ -1,6 +1,7 @@
 import logging
 from pathlib import Path
 from typing import Dict, Optional, Union
+import inspect
 
 from rich.console import Console
 from rich.logging import RichHandler
@@ -63,18 +64,17 @@ def get_version_info() -> dict[str, str]:
 def setup_logging(
     log_file: Union[str, Path, logging.Logger, None],
     log_level: Union[int, str] = logging.INFO,
-    logger_name: str = "RolyPoly",
+    logger_name: str = "RolyPoly",  # Kept for compatibility, but now ignored (root logger is used)
 ) -> logging.Logger:
     """Setup logging configuration for RolyPoly with both file and console logging using rich formatting."""
-    import subprocess
 
     # If log_file is already a logger, return it
     if isinstance(log_file, logging.Logger):
         return log_file
 
-    # Get existing logger if it exists
-    logger = logging.getLogger(logger_name)
-    if logger.handlers:  # If logger already has handlers, it's already set up
+    # Get existing logger if it exists (now using root logger)
+    logger = logging.getLogger()  # Root logger
+    if logger.handlers:  # If root already has handlers, it's already set up
         return logger
 
     if log_file is None:
@@ -94,8 +94,8 @@ def setup_logging(
         log_file = devnull
         # subprocess.call(f"echo ' ' > {log_file}", shell=True)
 
-    # Create logger
-    logger = logging.getLogger(logger_name)
+    # Create logger (root)
+    logger = logging.getLogger()  # Root logger
     if isinstance(log_level, str):
         log_level = {
             "debug": logging.DEBUG,
@@ -108,9 +108,7 @@ def setup_logging(
         log_level = log_level  # I think this is fine (i.e. 10/20/30/40/50 mapped automatically into debug/info/warning/error/critical)?
 
     logger.setLevel(log_level)
-    logger.propagate = (
-        False  # Prevent log messages from being passed to the root logger
-    )
+    # No need to set propagate=False on root (it doesn't propagate anyway)
 
     # Create console handler with rich formatting
     console = Console(width=150)
@@ -162,14 +160,67 @@ def log_start_info(logger: logging.Logger, config_dict: Dict):
 
 def get_logger(logger: Optional[logging.Logger] = None) -> logging.Logger:
     """Get a logger instance, creating a default one if none provided."""
-    if logger is None:
-        logger = logging.getLogger(__name__)
-        if not logger.handlers:
-            handler = logging.StreamHandler()
-            formatter = logging.Formatter(
-                "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-            )
-            handler.setFormatter(formatter)
-            logger.addHandler(handler)
-            logger.setLevel(logging.INFO)
-    return logger
+    # If a logger object was provided, return it unchanged
+    if isinstance(logger, logging.Logger):
+        return logger
+
+    # Determine the calling module so the logger reflects the caller
+    caller_name = None
+    for frame_info in inspect.stack()[1:]:
+        module = inspect.getmodule(frame_info.frame)
+        if module and module.__name__ != __name__:
+            caller_name = module.__name__
+            break
+
+    if not caller_name:
+        caller_name = __name__
+
+    # Return the module-specific logger without adding handlers here.
+    # This allows a single central configuration (via `setup_logging`) to
+    # control formatting and handlers so that filename/line information
+    # is consistently displayed for all modules.
+    return logging.getLogger(caller_name)
+
+
+
+
+def _resolve_datadir() -> Path:
+    """Resolve ROLYPOLY data directory at runtime.
+
+    Order of resolution:
+    1. `ROLYPOLY_DATA_DIR` environment variable
+    2. `rpconfig.json` package resource key `ROLYPOLY_DATA`
+    3. Fallback to a `data` directory at repo/package root or current working dir
+    """
+    import os
+    # 1. environment
+    env = os.environ.get("ROLYPOLY_DATA_DIR")
+    if env:
+        p = Path(env)
+        if p.exists():
+            return p
+
+    # 2. package config
+    try:
+        from importlib import resources
+        import json
+
+        cfg_path = Path(str(resources.files("rolypoly") / "rpconfig.json"))
+        if cfg_path.exists():
+            with cfg_path.open() as fh:
+                cfg = json.load(fh)
+            data_dir = Path(cfg.get("ROLYPOLY_DATA", ""))
+            if data_dir and data_dir.exists():
+                return data_dir
+    except Exception:
+        pass
+
+    # 3. fallback locations
+    # try relative to package root
+    pkg_root = Path(__file__).resolve().parents[3]
+    candidate = pkg_root / "data"
+    if candidate.exists():
+        return candidate
+
+    # final fallback to cwd
+    return Path.cwd()

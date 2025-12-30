@@ -227,7 +227,7 @@ class TaxonomyTree:
         nearest_leaves = []
         min_distance_found = float('inf')
         
-        # Strategy: Walk up the tree, and at each level, search descendants for leaves
+        # Strategy: Walk up the tree, and at each level, search descendants for leaves with data
         current = tax_id
         distance_to_ancestor = 0
         visited_ancestors = set()
@@ -461,17 +461,15 @@ class TaxonomyTree:
             return results, stats
         return results
     
-    def find_nearest_with_data_unified(self, tax_id, max_distance=10, max_rank='genus',
+    def find_nearest_with_data_unified(self, tax_id, max_rank='genus',
                                         priority_override=None, include_leaves=True,
                                         include_ancestors=True):
         """
-        Unified method combining both ancestor search and leaf search with rank constraints.
+        Unified method combining ancestor and leaf search, constrained by max_rank.
         
         Args:
             tax_id: Starting taxonomy ID
-            max_distance: Maximum taxonomic distance to search
-            max_rank: Maximum rank to traverse ('genus', 'family', 'order', etc.)
-                     Will not search beyond this rank level
+            max_rank: Maximum rank to traverse ('genus', 'family', etc.). Search stops at this rank.
             priority_override: Optional list of column names to override default priority_columns
             include_leaves: If True, search for nearest leaf relatives
             include_ancestors: If True, search for nearest ancestors
@@ -513,26 +511,26 @@ class TaxonomyTree:
             'max_rank_reached': False
         }
         
-        # Find the tax_id of the max_rank node in lineage (don't go beyond this)
+        # Find the tax_id of the max_rank node in lineage (search boundary)
         max_rank_tax_id = self._find_rank_boundary(tax_id, max_rank)
         
-        # Search for ancestor
+        # Search for ancestor within rank boundary
         if include_ancestors:
             result['ancestor'], rank_reached = self._find_nearest_ancestor_with_data_constrained(
-                tax_id, max_distance, max_rank_tax_id, priority_cols
+                tax_id, max_rank_tax_id, priority_cols
             )
             result['max_rank_reached'] = result['max_rank_reached'] or rank_reached
         
-        # Search for leaf relatives
+        # Search for leaf relatives within rank boundary
         if include_leaves:
             result['leaves'], rank_reached = self._find_nearest_leaf_with_data_constrained(
-                tax_id, max_distance, max_rank_tax_id, priority_cols
+                tax_id, max_rank_tax_id, priority_cols
             )
             result['max_rank_reached'] = result['max_rank_reached'] or rank_reached
         
         return result
     
-    def find_nearest_with_data_unified_batch(self, tax_ids, max_distance=10, max_rank='genus',
+    def find_nearest_with_data_unified_batch(self, tax_ids, max_rank='genus',
                                              priority_override=None, include_leaves=True,
                                              include_ancestors=True, return_stats=False):
         """
@@ -540,8 +538,7 @@ class TaxonomyTree:
         
         Args:
             tax_ids: List of taxonomy IDs to query
-            max_distance: Maximum taxonomic distance to search
-            max_rank: Maximum rank to traverse ('genus', 'family', 'order', etc.)
+            max_rank: Maximum rank to traverse ('genus', 'family', etc.)
             priority_override: Optional list of column names to override default priority_columns
             include_leaves: If True, search for nearest leaf relatives
             include_ancestors: If True, search for nearest ancestors
@@ -559,15 +556,13 @@ class TaxonomyTree:
             'leaves_found': 0,
             'no_match_found': 0,
             'max_rank_limited': 0,
-            'distance_distribution_ancestors': defaultdict(int),
-            'distance_distribution_leaves': defaultdict(int),
             'unmatched_tax_ids': []
         }
-        print(f"Search constraints: max_distance={max_distance}, max_rank='{max_rank}'\n")
+        print(f"Search constraints: max_rank='{max_rank}'\n")
         
         for tax_id in tax_ids:
             result = self.find_nearest_with_data_unified(
-                tax_id, max_distance, max_rank, priority_override, 
+                tax_id, max_rank, priority_override, 
                 include_leaves, include_ancestors
             )
             results[tax_id] = result
@@ -575,21 +570,15 @@ class TaxonomyTree:
             if return_stats:
                 if result['self_has_data']:
                     stats['self_has_data'] += 1
-                    stats['distance_distribution_ancestors'][0] += 1
-                    if result['leaves']:
-                        stats['distance_distribution_leaves'][0] += 1
                 else:
                     has_match = False
                     
                     if result['ancestor']:
                         stats['ancestor_found'] += 1
-                        stats['distance_distribution_ancestors'][result['ancestor']['distance']] += 1
                         has_match = True
                     
                     if result['leaves']:
                         stats['leaves_found'] += 1
-                        min_dist = min(leaf['distance'] for leaf in result['leaves'])
-                        stats['distance_distribution_leaves'][min_dist] += 1
                         has_match = True
                     
                     if not has_match:
@@ -627,238 +616,93 @@ class TaxonomyTree:
         
         return None
     
-    def _find_nearest_ancestor_with_data_constrained(self, tax_id, max_distance, 
-                                                     max_rank_tax_id, priority_cols):
+    def _find_nearest_ancestor_with_data_constrained(self, tax_id, max_rank_tax_id, priority_cols):
         """
         Find nearest ancestor with data, constrained by rank boundary.
         Returns (node_info, rank_reached_bool)
         """
         current = tax_id
-        distance = 0
-        candidates_at_distance = {}
         rank_reached = False
         
-        while current in self.parent_map and distance <= max_distance:
+        while current in self.parent_map:
             parent = self.parent_map[current]
-            distance += 1
             
             # Check if we've reached the rank boundary
             if max_rank_tax_id and parent == max_rank_tax_id:
                 rank_reached = True
-                # Check this node and then stop
                 if parent in self.data_available:
-                    candidate = self._create_node_info(parent, distance)
-                    if distance not in candidates_at_distance:
-                        candidates_at_distance[distance] = []
-                    candidates_at_distance[distance].append(candidate)
+                    return self._create_node_info(parent, 0), rank_reached  # Distance not used
                 break
             
             if parent in self.data_available:
-                candidate = self._create_node_info(parent, distance)
-                if distance not in candidates_at_distance:
-                    candidates_at_distance[distance] = []
-                candidates_at_distance[distance].append(candidate)
-                break
+                return self._create_node_info(parent, 0), rank_reached
             
-            if parent == current:  # Root node
+            if parent == current:  # Root
                 break
             current = parent
         
-        # Return best candidate at closest distance
-        if candidates_at_distance:
-            min_dist = min(candidates_at_distance.keys())
-            candidates = candidates_at_distance[min_dist]
-            prioritized = self._prioritize_candidates(candidates, priority_cols)
-            return (prioritized[0] if prioritized else None, rank_reached)
-        
-        return (None, rank_reached)
+        return None, rank_reached
     
-    def _find_nearest_leaf_with_data_constrained(self, tax_id, max_distance,
-                                                  max_rank_tax_id, priority_cols):
+    def _find_nearest_leaf_with_data_constrained(self, tax_id, max_rank_tax_id, priority_cols):
         """
         Find nearest leaf nodes with data, constrained by rank boundary.
         Returns (list of leaf nodes, rank_reached_bool)
         """
         nearest_leaves = []
-        min_distance_found = float('inf')
         rank_reached = False
         
-        # Walk up the tree, searching descendants at each level
+        # Walk up to max_rank, then search descendants for leaves
         current = tax_id
-        distance_to_ancestor = 0
         visited_ancestors = set()
         
-        while current in self.parent_map and distance_to_ancestor <= max_distance:
+        while current in self.parent_map:
             if current in visited_ancestors:
                 break
             visited_ancestors.add(current)
             
-            # Check if we've reached the rank boundary
+            # If at max_rank boundary, search its subtree and stop
             if max_rank_tax_id and current == max_rank_tax_id:
                 rank_reached = True
-                # Search descendants of this node and then stop
-                leaves_here = self._find_leaves_with_data_in_subtree(
-                    current, 
-                    max_depth=max_distance - distance_to_ancestor,
-                    priority_cols=priority_cols
-                )
-                
-                for leaf_info in leaves_here:
-                    total_distance = distance_to_ancestor + leaf_info['distance']
-                    if total_distance <= max_distance and total_distance <= min_distance_found:
-                        leaf_info['distance'] = total_distance
-                        if total_distance < min_distance_found:
-                            nearest_leaves = [leaf_info]
-                            min_distance_found = total_distance
-                        elif total_distance == min_distance_found:
-                            nearest_leaves.append(leaf_info)
+                leaves_here = self._find_leaves_with_data_in_subtree(current, priority_cols)
+                nearest_leaves.extend(leaves_here)
                 break
             
-            # Search descendants of this ancestor for leaves with data
-            leaves_here = self._find_leaves_with_data_in_subtree(
-                current, 
-                max_depth=max_distance - distance_to_ancestor,
-                priority_cols=priority_cols
-            )
-            
-            # Calculate total distance (up to ancestor + down to leaf)
-            for leaf_info in leaves_here:
-                total_distance = distance_to_ancestor + leaf_info['distance']
-                if total_distance <= max_distance and total_distance <= min_distance_found:
-                    leaf_info['distance'] = total_distance
-                    if total_distance < min_distance_found:
-                        nearest_leaves = [leaf_info]
-                        min_distance_found = total_distance
-                    elif total_distance == min_distance_found:
-                        nearest_leaves.append(leaf_info)
+            # Search descendants for leaves
+            leaves_here = self._find_leaves_with_data_in_subtree(current, priority_cols)
+            nearest_leaves.extend(leaves_here)
             
             # Move to parent
             parent = self.parent_map.get(current)
             if parent == current:  # Root
                 break
             current = parent
-            distance_to_ancestor += 1
         
-        # Prioritize and return
-        prioritized_leaves = self._prioritize_candidates(nearest_leaves, priority_cols)
-        
-        return (prioritized_leaves, rank_reached)
+        # Prioritize and return unique nearest leaves
+        prioritized_leaves = self._prioritize_candidates(list(set(nearest_leaves)), priority_cols)
+        return prioritized_leaves, rank_reached
     
-    def _create_node_info(self, tax_id, distance):
-        """Create standardized node info dict with metadata"""
-        info = {
-            'tax_id': tax_id,
-            'distance': distance,
-            'name': self.name_map.get(tax_id),
-            'rank': self.rank_map.get(tax_id)
-        }
-        # Add metadata if available
-        if tax_id in self.metadata_map:
-            info['metadata'] = self.metadata_map[tax_id]
-        return info
-    
-    def _prioritize_candidates(self, candidates, priority_cols):
+    def _find_leaves_with_data_in_subtree(self, root_id, priority_cols):
         """
-        Sort candidates by priority columns (higher values = higher priority).
-        
-        Args:
-            candidates: List of node info dicts
-            priority_cols: List of column names to use for sorting
-        
-        Returns:
-            Sorted list of candidates
+        Find all leaves with data in the subtree rooted at root_id (optimized BFS).
         """
-        if not priority_cols or not candidates:
-            return candidates
-        
-        def get_priority_values(candidate):
-            """Extract priority values from candidate metadata"""
-            metadata = candidate.get('metadata', {})
-            values = []
-            for col in priority_cols:
-                val = metadata.get(col, 0)
-                # Handle None/null values
-                if val is None or val in ['', 'na', 'NA', '-']:
-                    val = 0
-                # Convert to numeric if possible
-                try:
-                    val = float(val)
-                except (ValueError, TypeError):
-                    val = 0
-                values.append(val)
-            return values
-        
-        # Sort by priority values (descending) then by distance (ascending)
-        return sorted(candidates, 
-                     key=lambda x: (x['distance'], tuple(-v for v in get_priority_values(x))))
-    
-    
-    def _find_nearest_ancestor_with_data(self, tax_id, max_distance, priority_cols):
-        """Find nearest ancestor with data using BFS up the tree"""
-        current = tax_id
-        distance = 0
-        candidates_at_distance = {}  # distance -> list of candidates
-        
-        while current in self.parent_map and distance <= max_distance:
-            parent = self.parent_map[current]
-            distance += 1
-            
-            if parent in self.data_available:
-                candidate = self._create_node_info(parent, distance)
-                if distance not in candidates_at_distance:
-                    candidates_at_distance[distance] = []
-                candidates_at_distance[distance].append(candidate)
-                # Found closest distance, now prioritize if multiple at same distance
-                break
-            
-            if parent == current:  # Root node
-                break
-            current = parent
-        
-        # Return best candidate at closest distance
-        if candidates_at_distance:
-            min_dist = min(candidates_at_distance.keys())
-            candidates = candidates_at_distance[min_dist]
-            prioritized = self._prioritize_candidates(candidates, priority_cols)
-            return prioritized[0] if prioritized else None
-        
-        return None
-    
-    def _find_nearest_descendants_with_data(self, tax_id, max_distance, priority_cols):
-        """Find nearest descendants with data using BFS down the tree"""
-        if tax_id not in self.children_map:
-            return []
-        
-        # BFS queue: (tax_id, distance)
-        queue = deque([(child, 1) for child in self.children_map[tax_id]])
-        candidates_by_distance = defaultdict(list)
-        min_distance_found = float('inf')
+        leaves = []
+        queue = deque([root_id])
+        visited = set()
         
         while queue:
-            current_id, distance = queue.popleft()
-            
-            if distance > max_distance or distance > min_distance_found:
+            node_id = queue.popleft()
+            if node_id in visited:
                 continue
+            visited.add(node_id)
             
-            if current_id in self.data_available:
-                candidate = self._create_node_info(current_id, distance)
-                candidates_by_distance[distance].append(candidate)
-                min_distance_found = min(min_distance_found, distance)
+            if node_id in self.leaf_nodes and node_id in self.data_available:
+                leaves.append(self._create_node_info(node_id, 0))  # Distance not used
             
-            # Continue exploring if we haven't found the closest yet or still at min distance
-            if distance < max_distance:
-                if current_id in self.children_map:
-                    for child in self.children_map[current_id]:
-                        queue.append((child, distance + 1))
+            if node_id in self.children_map:
+                queue.extend(self.children_map[node_id])
         
-        # Get all descendants at minimum distance and prioritize
-        if candidates_by_distance:
-            min_dist = min(candidates_by_distance.keys())
-            candidates = candidates_by_distance[min_dist]
-            return self._prioritize_candidates(candidates, priority_cols)
-        
-        return []
-    
+        return leaves
+
     def get_lineage_path(self, tax_id):
         """Get full lineage path from root to tax_id"""
         lineage = []
