@@ -46,9 +46,7 @@ def translate_6frx_seqkit(
     # sp.run(command, shell=True, check=True)
 
 
-def translate_with_bbmap(
-    input_file: str, output_file: str, threads: int
-) -> None:
+def translate_with_bbmap(input_file: str, output_file: str, threads: int) -> None:
     """Translate nucleotide sequences using BBMap's callgenes.sh
 
     Args:
@@ -64,7 +62,9 @@ def translate_with_bbmap(
     import subprocess as sp
 
     gff_o = output_file.replace(".faa", ".gff")
-    command = f"callgenes.sh threads={threads} in={input_file} outa={output_file} out={gff_o}"
+    command = (
+        f"callgenes.sh threads={threads} in={input_file} outa={output_file} out={gff_o}"
+    )
     sp.run(command, shell=True, check=True)
 
 
@@ -102,9 +102,9 @@ def pyro_predict_orfs(
     gene_finder = pyro_rv.ViralGeneFinder(
         meta=True,
         min_gene=min_gene_length,
-        max_overlap=min(30, min_gene_length - 1)
-        if min_gene_length > 30
-        else 20,  # Ensure max_overlap < min_gene
+        max_overlap=(
+            min(30, min_gene_length - 1) if min_gene_length > 30 else 20
+        ),  # Ensure max_overlap < min_gene
     )  # a single gv gene finder object
 
     with multiprocessing.pool.Pool(processes=threads) as pool:
@@ -114,7 +114,8 @@ def pyro_predict_orfs(
         for i, orf in enumerate(orfs):
             orf.write_translations(dst, sequence_id=ids[i], width=111110)
 
-    with open(output_file.replace(".faa", ".gff"), "w") as dst:
+    gff_path = output_file.with_suffix(".gff")
+    with open(gff_path, "w") as dst:
         for i, orf in enumerate(orfs):
             orf.write_gff(dst, sequence_id=ids[i], full_id=True)
 
@@ -137,9 +138,7 @@ def predict_orfs_orffinder(
             "ml": min_orf_length,  # orfinder automatically replaces values below 30 to 30.
             "s": start_codon,  # ORF start codon to use, 0 is atg only, 1 atg + alt start codons
             "g": genetic_code,
-            "n": "false"
-            if ignore_nested
-            else "true",  # do not ignore nested ORFs
+            "n": "false" if ignore_nested else "true",  # do not ignore nested ORFs
             "strand": strand,  # both is plus and minus.
             "outfmt": outfmt,  # 1 is fasta, 3 is feature table
         },
