@@ -46,7 +46,9 @@ def translate_6frx_seqkit(
     # sp.run(command, shell=True, check=True)
 
 
-def translate_with_bbmap(input_file: str, output_file: str, threads: int) -> None:
+def translate_with_bbmap(
+    input_file: str, output_file: str, threads: int
+) -> None:
     """Translate nucleotide sequences using BBMap's callgenes.sh
 
     Args:
@@ -62,9 +64,7 @@ def translate_with_bbmap(input_file: str, output_file: str, threads: int) -> Non
     import subprocess as sp
 
     gff_o = output_file.replace(".faa", ".gff")
-    command = (
-        f"callgenes.sh threads={threads} in={input_file} outa={output_file} out={gff_o}"
-    )
+    command = f"callgenes.sh threads={threads} in={input_file} outa={output_file} out={gff_o}"
     sp.run(command, shell=True, check=True)
 
 
@@ -138,7 +138,9 @@ def predict_orfs_orffinder(
             "ml": min_orf_length,  # orfinder automatically replaces values below 30 to 30.
             "s": start_codon,  # ORF start codon to use, 0 is atg only, 1 atg + alt start codons
             "g": genetic_code,
-            "n": "false" if ignore_nested else "true",  # do not ignore nested ORFs
+            "n": "false"
+            if ignore_nested
+            else "true",  # do not ignore nested ORFs
             "strand": strand,  # both is plus and minus.
             "outfmt": outfmt,  # 1 is fasta, 3 is feature table
         },
