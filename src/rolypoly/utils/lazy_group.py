@@ -1,7 +1,10 @@
 import rich_click as click
 from rich.console import Console
 
+from rolypoly.utils.logging.loggit import get_logger
+
 console = Console()
+logger = get_logger()
 
 
 class LazyGroup(click.RichGroup):
@@ -70,8 +73,8 @@ class LazyGroup(click.RichGroup):
             except (ImportError, AttributeError) as e:
                 # If loading fails, remove the command from listings
                 if not self.lazy_subcommands[cmd_name].startswith("hidden:"):
-                    console.print(
-                        f"[yellow]Warning:[/yellow] Failed to load command '{cmd_name}': {str(e)}"
+                    logger.warning(
+                        f"Failed to load command '{cmd_name}': {str(e)}"
                     )
                 return None
         return super().get_command(ctx, cmd_name)
@@ -113,8 +116,8 @@ class LazyGroup(click.RichGroup):
 
         except Exception as e:
             if not import_path.startswith("hidden:"):
-                console.print(
-                    f"[red]Error loading command '{cmd_name}':[/red] {str(e)}"
+                logger.warning(
+                    f"Error loading command '{cmd_name}': {str(e)}"
                 )
             raise
 

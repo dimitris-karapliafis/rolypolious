@@ -337,7 +337,6 @@ def quick_taxonomy(
                         k, f"{v:.1f}" if isinstance(v, float) else str(v)
                     )
 
-            console.print("\n")
             console.print(summary_table)
 
             # Create taxonomy distribution table
@@ -352,7 +351,6 @@ def quick_taxonomy(
                     tax, str(count), f"{count / total * 100:.1f}%"
                 )
 
-            console.print("\n")
             console.print(dist_table)
 
             # Save to file

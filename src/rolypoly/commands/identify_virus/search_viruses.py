@@ -2,12 +2,9 @@ import os
 from pathlib import Path as pt
 
 import rich_click as click
-from rich.console import Console
 
 global tools
 tools = []
-
-console = Console()
 
 
 @click.command(name="virus-mapping")
@@ -147,8 +144,8 @@ def virus_mapping(
         db_paths = DB_PATHS
     elif db == "other":
         if not db_path:
-            console.print(
-                "[bold red]Error:[/bold red] Please provide a path to the user-supplied database with --db-path"
+            logger.warning(
+                "Please provide a path to the user-supplied database with --db-path"
             )
             return
         if pt(db_path).suffix in [".faa", ".fasta", ".fas", ".fa", ".fna"]:

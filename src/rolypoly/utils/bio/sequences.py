@@ -957,17 +957,10 @@ def ensure_faidx(
 
     try:
         import pyfastx
-        from rich.console import Console
-
-        console = Console(width=150)
 
         if not os.path.exists(f"{input_file}.fxi"):
             logger.info(f"Indexing {input_file} with pyfastx")
-            console.print(
-                f"[yellow]Indexing {input_file} with pyfastx[/yellow]"
-            )
             pyfastx.Fasta(str(input_file))
-            console.print("[green]Indexing complete.[/green]")
             logger.info("FASTA indexing completed")
         else:
             logger.debug(f"Index already exists for {input_file}")

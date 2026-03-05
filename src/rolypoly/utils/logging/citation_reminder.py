@@ -5,7 +5,10 @@ from typing import List, Union
 import requests
 from rich.console import Console
 
+from rolypoly.utils.logging.loggit import get_logger
+
 console = Console(width=150)
+logger = get_logger()
 global REMIND_CITATIONS
 REMIND_CITATIONS = os.environ.get("ROLYPOLY_REMIND_CITATIONS", False)
 if REMIND_CITATIONS == "False":
@@ -42,10 +45,7 @@ def get_citations(tools: Union[str, List[str]]):
                 (all_citations[tool]["name"], all_citations[tool]["citation"])
             )
         else:
-            console.print(
-                f"Warning: No citation found for {tool}, adding a remider.",
-                style="yellow",
-            )
+            logger.warning(f"No citation found for {tool}, adding a reminder.")
             citations.append(
                 (
                     f" {tool}",
@@ -120,11 +120,9 @@ def get_citation_from_doi(doi_or_url, return_bibtex=False):
         else:
             return f"{doi_or_url}"
     except Exception as e:
-        console.print(
-            f"Unable to fetch citation for DOI: {doi_or_url}", style="red"
-        )
-        console.print(f"exact error is {e}")
-        console.print(f"Suggestion: {doi_or_url}", style="yellow")
+        logger.warning(f"Unable to fetch citation for DOI: {doi_or_url}")
+        logger.info(f"exact error is {e}")
+        logger.warning(f"Suggestion: {doi_or_url}")
         return f"{doi_or_url}"
 
 
@@ -150,29 +148,19 @@ def remind_citations(
     tools: Union[str, List[str]], return_as_text=False, return_bibtex=False
 ) -> Union[str, None]:
     """Display or return citation reminders for used tools"""
-    from rich.text import Text
-
     tools = list(set(tools))
     citations = get_citations(tools)
     if len(citations) == 0:
-        console.print(
-            Text("No citations found for the provided tools.", style="red")
-        )
+        logger.warning("No citations found for the provided tools.")
         return
 
     if REMIND_CITATIONS:  # controls printing to console
-        console.print(
-            Text(
-                f"rolypoly used {tools} in your analysis, please cite the following software or database:",
-                style="bold green",
-            )
+        logger.info(
+            f"rolypoly used {tools} in your analysis, please cite the following software or database:"
         )
         display_citations(citations)
-        console.print(
-            Text(
-                "\nRemember to also cite any additional databases or tools you used that are not listed here. No one is charging you extra for having a lot of citations, and it is important for reproducibility, yah silly.",
-                style="italic yellow",
-            )
+        logger.info(
+            "Remember to also cite any additional databases or tools you used that are not listed here. No one is charging you extra for having a lot of citations, and it is important for reproducibility, yah silly."
         )
 
     if return_as_text or return_bibtex:  # controls function return value

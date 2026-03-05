@@ -4,7 +4,6 @@ from pathlib import Path
 from typing import Union
 
 import rich_click as click
-from rich.console import Console
 
 from rolypoly.utils.bio.sequences import guess_fasta_alpha
 from rolypoly.utils.logging.citation_reminder import remind_citations
@@ -13,8 +12,6 @@ from rolypoly.utils.various import ensure_memory
 
 global tools
 tools = [""]
-
-console = Console(width=150)
 
 
 class RNAAnnotationConfig(BaseConfig):
@@ -264,7 +261,7 @@ def annotate_RNA(
     try:
         process_RNA_annotations(config)
     except Exception as e:
-        console.print(f"An error occurred during RNA annotation: {str(e)}")
+        config.logger.warning(f"An error occurred during RNA annotation: {str(e)}")
         raise
 
     # remind_citations(tools)

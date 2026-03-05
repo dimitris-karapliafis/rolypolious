@@ -7,7 +7,6 @@ from typing import Union
 import polars as pl
 from polars.exceptions import NoDataError
 import rich_click as click
-from rich.console import Console
 
 from rolypoly.utils.bio.sequences import guess_fasta_alpha
 from rolypoly.utils.logging.config import BaseConfig
@@ -140,9 +139,6 @@ class ProteinAnnotationConfig(BaseConfig):
                     print(
                         f"Warning: Unknown step '{step}' in override_parameters. Ignoring."
                     )
-
-
-console = Console(width=150)
 
 
 def stage_protein_input_as_orfs(config) -> bool:
@@ -391,7 +387,7 @@ def annotate_prot(
     try:
         process_protein_annotations(config)
     except Exception as e:
-        console.print(f"An error occurred during protein annotation: {str(e)}")
+        config.logger.warning(f"An error occurred during protein annotation: {str(e)}")
         raise
 
 

@@ -1,9 +1,10 @@
 from pathlib import Path
 
 import rich_click as click
-from rich.console import Console
 
-console = Console()
+from rolypoly.utils.logging.loggit import get_logger
+
+logger = get_logger()
 
 
 @click.command()
@@ -57,8 +58,8 @@ def add_command(
     commands_dir = package_src / "src" / "rolypoly" / "commands"
 
     if not commands_dir.exists():
-        console.print(
-            f"[red]Commands directory {commands_dir} does not exist.[/red]"
+        logger.warning(
+            f"Commands directory {commands_dir} does not exist."
         )
         return
 
@@ -77,8 +78,8 @@ def add_command(
 
     # If not interactive and missing required args, fail
     if not all([category, name, description]):
-        console.print(
-            "[red]Error: category, name, and description are required in non-interactive mode[/red]"
+        logger.warning(
+            "category, name, and description are required in non-interactive mode"
         )
         return
 
@@ -90,7 +91,7 @@ def add_command(
                 for arg in json.loads(args_json)
             ]
         except json.JSONDecodeError:
-            console.print("[red]Error: Invalid JSON format for args[/red]")
+            logger.warning("Invalid JSON format for args")
             return
     elif interactive:
         while True:
@@ -106,10 +107,10 @@ def add_command(
             arg_required = click.confirm(f'Is argument "{arg_name}" mandatory?')
             args.append((arg_name, arg_type, arg_required))
 
-    console.print(f"[green]Command category: {category}[/green]")
-    console.print(f"[green]Command name: {name}[/green]")
-    console.print(f"[green]Common arguments: {common_args}[/green]")
-    console.print(f"[green]Packages: {packages}[/green]")
+    logger.info(f"Command category: {category}")
+    logger.info(f"Command name: {name}")
+    logger.info(f"Common arguments: {common_args}")
+    logger.info(f"Packages: {packages}")
 
     command_dir = commands_dir / category
     command_dir.mkdir(parents=True, exist_ok=True)

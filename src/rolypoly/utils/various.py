@@ -5,13 +5,12 @@ from pathlib import Path
 from typing import Dict, List, Optional, Union
 
 import polars as pl
-from rich.console import Console
 
 from rolypoly.utils.logging.loggit import (
     get_logger,  # TODO: check if this can work with get_logger(None) so I don't need to have all the if logger is none then...
 )
 
-console = Console()
+logger = get_logger()
 
 
 def extract(
@@ -29,9 +28,7 @@ def extract(
 
     archive_path = Path(archive_path)
     if not archive_path.is_file():
-        console.print(
-            f"[bold red]'{archive_path}' is not a valid file![/bold red]"
-        )
+        logger.warning(f"'{archive_path}' is not a valid file!")
         return
 
     extract_to = Path(extract_to) if extract_to else archive_path.parent
@@ -84,14 +81,10 @@ def extract(
             with zipfile.ZipFile(archive_path, "r") as zip_ref:
                 zip_ref.extractall(extract_to)
 
-        console.print(
-            f"[green]Successfully decompressed '{archive_path}' to '{extract_to}'[/green]"
-        )
+        logger.info(f"Successfully decompressed '{archive_path}' to '{extract_to}'")
 
     except Exception as e:
-        console.print(
-            f"[bold red]Error processing '{archive_path}': {str(e)}[/bold red]"
-        )
+        logger.warning(f"Error processing '{archive_path}': {str(e)}")
         if is_compressed and decompressed_path.exists():
             decompressed_path.unlink()  # Cleanup on error
 
@@ -576,15 +569,15 @@ def ensure_memory(
     available_memory_bytes = psutil.virtual_memory().total
 
     if requested_memory_bytes > available_memory_bytes:
-        console.print(
-            f"[yellow]Warning: Requested memory ({memory}) exceeds available system memory ({convert_bytes_to_units(available_memory_bytes)['giga']}).[/yellow]"
+        logger.warning(
+            f"Requested memory ({memory}) exceeds available system memory ({convert_bytes_to_units(available_memory_bytes)['giga']})."
         )
 
     if file_path and Path(file_path).is_file():
         file_size_bytes = Path(file_path).stat().st_size
         if requested_memory_bytes <= file_size_bytes:
-            console.print(
-                f"[yellow]Warning: Requested memory ({memory}) is less than or equal to the file size ({convert_bytes_to_units(file_size_bytes)['giga']}).[/yellow]"
+            logger.warning(
+                f"Requested memory ({memory}) is less than or equal to the file size ({convert_bytes_to_units(file_size_bytes)['giga']})."
             )
 
     return convert_bytes_to_units(requested_memory_bytes)
@@ -807,34 +800,28 @@ def move_contents_to_parent(folder, overwrite=True):
             if not os.path.exists(d):
                 shutil.move(s, d)
             else:
-                console.print(
-                    f"[bold red]File {d} already exists! Skipping    [/bold red]"
-                )
+                logger.warning(f"File {d} already exists! Skipping")
     #  remove the now empty folder
     os.rmdir(folder)  # only works on empty dir
 
 
 def check_file_exists(file_path):
     if not Path(file_path).exists():
-        console.print(
-            f"[bold red]File not found: {file_path} Tüdelü![/bold red]"
-        )
+        logger.warning(f"File not found: {file_path} Tüdelü!")
         raise FileNotFoundError(f"File not found: {file_path}")
 
 
 def check_file_size(file_path):
     file_size = Path(file_path).stat().st_size
     if file_size == 0:
-        console.print(f"[yellow]File '{file_path}' is empty[/yellow]")
+        logger.warning(f"File '{file_path}' is empty")
     else:
-        console.print(f"File '{file_path}' size is {file_size}")
+        logger.info(f"File '{file_path}' size is {file_size}")
 
 
 def is_file_empty(file_path, size_threshold=28):
     if not Path(file_path).exists():
-        console.print(
-            f"[bold red]File '{file_path}' does not exist.[/bold red]"
-        )
+        logger.warning(f"File '{file_path}' does not exist.")
         return True
     file_size = Path(file_path).stat().st_size
     return (
@@ -1170,15 +1157,11 @@ def is_gzipped(file_path: Union[str, Path]) -> bool:
 def check_file_exist_isempty(file_path):
     check_file_exists(file_path)
     if is_file_empty(file_path):
-        console.print(
-            f"[yellow]File {file_path} exists, but is empty.[/yellow]"
-        )
+        logger.warning(f"File {file_path} exists, but is empty.")
         return False
-        # console.print("This might mean all reads were filtered. Exiting without proceeding to downstream steps.")
-        # raise ValueError(f"File {file_path} is empty")
     else:
-        console.print(
-            f"[green]File '{file_path}' size is {Path(file_path).stat().st_size} bytes (not empty). [/green]"
+        logger.info(
+            f"File '{file_path}' size is {Path(file_path).stat().st_size} bytes (not empty)."
         )
         return True
 

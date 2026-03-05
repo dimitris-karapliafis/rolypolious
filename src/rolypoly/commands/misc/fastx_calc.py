@@ -1,7 +1,4 @@
 import rich_click as click
-from rich.console import Console
-
-console = Console()
 
 
 @click.command(name="fastx-calc")
@@ -132,7 +129,6 @@ def fastx_calc(
     if not write_to_stdout:
         logger.info(f"✓ Results written to {output}")
         logger.info(f"✓ Total sequences processed: {total_seqs}")
-        logger.info("First 5 rows:")
-        console.print(df.head(5))
+        logger.info(f"First 5 rows: {df.head(5)}")
 
     logger.info("Sequence calculations completed successfully")

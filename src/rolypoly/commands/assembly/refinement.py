@@ -1,9 +1,6 @@
 import os
 
-from rich.console import Console
 from rich_click import command, option
-
-console = Console()
 
 
 @command()
@@ -66,7 +63,7 @@ def refinement(
     )
 
     logger.info("Assembly refinement completed")
-    console.print(f"Refined assembly(ies) saved in: {output}")
+    logger.info(f"Refined assembly(ies) saved in: {output}")
     return final_assemblies
 
 
