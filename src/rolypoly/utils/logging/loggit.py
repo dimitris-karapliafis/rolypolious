@@ -1,5 +1,7 @@
 import inspect
 import logging
+import os
+import sys
 from pathlib import Path
 from typing import Dict, Optional, Union
 
@@ -8,6 +10,33 @@ from rich.logging import RichHandler
 
 
 ROLYPOLY_HANDLER_ATTR = "rolypoly_handler_type"
+
+
+def is_notebook_or_ipython_execution() -> bool:
+    """Detect notebook/IPython execution contexts where terminal hyperlinks break log formatting."""
+    if os.environ.get("JPY_PARENT_PID"):
+        return True
+
+    if os.environ.get("IPYKERNEL_CELL_NAME"):
+        return True
+
+    if os.environ.get("COLAB_RELEASE_TAG"):
+        return True
+
+    try:
+        from IPython import get_ipython
+
+        return get_ipython() is not None
+    except Exception:
+        return False
+
+
+def is_interactive_terminal_session() -> bool:
+    """Return True only for interactive terminal sessions (not notebook/IPython and not redirected output)."""
+    if is_notebook_or_ipython_execution():
+        return False
+
+    return sys.stdout.isatty()
 
 
 def get_version_info() -> dict[str, str]:
@@ -110,14 +139,21 @@ def setup_logging(
             rolypoly_file_handlers.append(handler)
 
     if rolypoly_console_handler is None:
-        console = Console(width=150)
+        is_interactive_session = is_interactive_terminal_session()
+        console = Console(
+            width=150,
+            force_terminal=is_interactive_session,
+            no_color=not is_interactive_session,
+            color_system=None if not is_interactive_session else "auto",
+        )
+        enable_link_path = is_interactive_session
         try:
             rolypoly_console_handler = RichHandler(
                 rich_tracebacks=True,
                 console=console,
                 show_time=False,
                 show_path=True,
-                enable_link_path=True,
+                enable_link_path=enable_link_path,
             )
         except TypeError:
             rolypoly_console_handler = RichHandler(
