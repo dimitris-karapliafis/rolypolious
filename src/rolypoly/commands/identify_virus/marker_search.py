@@ -1,5 +1,7 @@
 import os
+import re
 from pathlib import Path
+from typing import Optional
 
 from rich.console import Console
 from rich_click import Choice, command, option
@@ -34,6 +36,93 @@ class RVirusSearchConfig(BaseConfig):
         self.resolve_mode = kwargs.get("resolve_mode") or "simple"
         self.min_overlap_positions = kwargs.get("min_overlap_positions") or 10
         self.name = kwargs.get("name") or None
+        self.write_matched_regions = kwargs.get("write_matched_regions", True)
+        self.matched_regions_output = kwargs.get(
+            "matched_regions_output"
+        ) or None
+        self.include_aligned_region = kwargs.get(
+            "include_aligned_region", True
+        )
+        self.include_alignment_string = kwargs.get(
+            "include_alignment_string", False
+        )
+
+
+def _pick_region_output_path(
+    output_dir: str, explicit_path: Optional[str]
+) -> Path:
+    """Resolve the output path for matched-region FASTA sequences."""
+    if explicit_path:
+        out_path = Path(explicit_path)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        return out_path
+    return Path(output_dir) / "marker_search_matched_regions.faa"
+
+
+def _write_matched_regions_fasta(
+    hit_df, output_path: Path, include_aligned_region: bool
+) -> None:
+    """Write matched query regions from search hits to FASTA."""
+    if hit_df.is_empty():
+        output_path.touch()
+        return
+
+    required_cols = {"query_full_name", "hmm_full_name", "q1", "q2"}
+    missing = required_cols.difference(set(hit_df.columns))
+    if missing:
+        raise ValueError(
+            f"Cannot write matched regions, missing required columns: {missing}"
+        )
+
+    use_full_qseq = "full_qseq" in hit_df.columns
+    use_aligned_region = (
+        include_aligned_region and "aligned_region" in hit_df.columns
+    )
+
+    with open(output_path, "w") as fout:
+        for row in hit_df.iter_rows(named=True):
+            query_id = str(row["query_full_name"]).strip()
+            hmm_name = str(row["hmm_full_name"]).strip().replace(" ", "_")
+            q1 = int(row["q1"])
+            q2 = int(row["q2"])
+
+            # Many FASTA parsers only keep text before first whitespace as the ID.
+            # Extract frame metadata from the full query label and encode it in the ID token.
+            frame_match = re.search(
+                r"(?:^|[\s;|,_])(?:frame|rf)[:=]([+-]?[1-3])",
+                query_id,
+                re.IGNORECASE,
+            )
+            frame_suffix = f"|frame={frame_match.group(1)}" if frame_match else ""
+            query_token = query_id.split()[0].replace(" ", "_")
+            token_parts = query_token.split("|")
+            orf_suffix = (
+                f"|orf={token_parts[-1]}"
+                if not frame_suffix
+                and len(token_parts) >= 3
+                and token_parts[-1].isdigit()
+                else ""
+            )
+
+            if use_full_qseq:
+                full_qseq = str(row.get("full_qseq", ""))
+                region_seq = full_qseq[max(0, q1 - 1) : max(0, q2)]
+            elif use_aligned_region:
+                region_seq = str(row.get("aligned_region", ""))
+            else:
+                # If only the summary table is kept, at least preserve a traceable record.
+                region_seq = ""
+
+            # Matched-region FASTA output should be raw query segments, not gapped alignments.
+            region_seq = region_seq.replace("-", "").replace(".", "")
+
+            if not region_seq:
+                continue
+
+            region_id = (
+                f"{query_token}{frame_suffix}{orf_suffix}|hit={hmm_name}|coords={q1}-{q2}"
+            )
+            fout.write(f">{region_id}\n{region_seq}\n")
 
 
 global tools
@@ -173,6 +262,27 @@ console = Console(width=150)
     default="./marker_search_tmp/",
     help="Path to temporary directory",
 )
+@option(
+    "--write-matched-regions/--no-write-matched-regions",
+    default=True,
+    help="Write matched query regions to FASTA (enabled by default; disable with --no-write-matched-regions)",
+)
+@option(
+    "-mro",
+    "--matched-regions-output",
+    default=None,
+    help="Output FASTA path for matched regions (default: <output>/marker_search_matched_regions.faa)",
+)
+@option(
+    "--include-aligned-region/--no-include-aligned-region",
+    default=True,
+    help="Include aligned query region sequence in marker_search_results.tsv (enabled by default)",
+)
+@option(
+    "--include-alignment-string/--no-include-alignment-string",
+    default=False,
+    help="Include alignment identity string in marker_search_results.tsv (disabled by default)",
+)
 def marker_search(
     input,
     output,
@@ -191,6 +301,10 @@ def marker_search(
     overwrite,
     log_level,
     temp_dir,
+    write_matched_regions,
+    matched_regions_output,
+    include_aligned_region,
+    include_alignment_string,
 ):
     """RNA virus marker protein search - using pre-made/user-supplied DBs.
     Most pre-made DBs are based on RdRp domain (except for geNomad).
@@ -268,6 +382,10 @@ def marker_search(
             resolve_mode=resolve_mode,
             min_overlap_positions=min_overlap_positions,
             memory=memory,
+            write_matched_regions=write_matched_regions,
+            matched_regions_output=matched_regions_output,
+            include_aligned_region=include_aligned_region,
+            include_alignment_string=include_alignment_string,
         )
 
     # Logging
@@ -414,9 +532,9 @@ def marker_search(
             inc_e=config.inc_evalue,
             mscore=config.score,
             output_format="modomtblout",
-            ali_str=False,
-            full_qseq=False,
-            match_region=False,
+            ali_str=config.include_alignment_string,
+            full_qseq=config.write_matched_regions,
+            match_region=config.include_aligned_region,
         )
         config.logger.debug(f"temp output: {tmp_output}")
         all_outputs.append(tmp_output)
@@ -439,9 +557,24 @@ def marker_search(
             "Using adaptive 'simple' mode for overlap resolution with polyprotein detection"
         )
 
-        # Use consolidate_hits with adaptive overlap enabled
-        testdf = consolidate_hits(
+        # Run in two passes because drop_contained returns early and cannot be
+        # combined with one_per_range in a single consolidate_hits call.
+        stage_df = consolidate_hits(
             input=stack_df,
+            one_per_query=False,
+            one_per_range=False,
+            min_overlap_positions=config.min_overlap_positions,  # Will be overridden by adaptive logic
+            merge=False,
+            split=False,
+            column_specs="query_full_name,hmm_full_name",
+            rank_columns="-full_hmm_score,+full_hmm_evalue,-hmm_cov",
+            drop_contained=True,
+            alphabet="aa",
+            adaptive_overlap=True,
+        )
+
+        testdf = consolidate_hits(
+            input=stage_df,
             one_per_query=False,
             one_per_range=True,
             min_overlap_positions=config.min_overlap_positions,  # Will be overridden by adaptive logic
@@ -449,7 +582,7 @@ def marker_search(
             split=False,
             column_specs="query_full_name,hmm_full_name",
             rank_columns="-full_hmm_score,+full_hmm_evalue,-hmm_cov",
-            drop_contained=True,
+            drop_contained=False,
             alphabet="aa",
             adaptive_overlap=True,
         )
@@ -472,6 +605,47 @@ def marker_search(
         )
     else:
         testdf = stack_df
+
+    # Write optional matched regions before dropping helper columns.
+    if config.write_matched_regions:
+        matched_region_output = _pick_region_output_path(
+            output, config.matched_regions_output
+        )
+        _write_matched_regions_fasta(
+            hit_df=testdf,
+            output_path=matched_region_output,
+            include_aligned_region=config.include_aligned_region,
+        )
+        config.logger.info(
+            f"Matched regions written to {matched_region_output.absolute()}"
+        )
+
+    if "full_qseq" in testdf.columns and not config.write_matched_regions:
+        testdf = testdf.drop("full_qseq")
+
+    if "full_qseq" in testdf.columns and config.write_matched_regions:
+        # Keep result tables compact while preserving full sequences in region FASTA output.
+        testdf = testdf.drop("full_qseq")
+
+    # Add explicit trace columns for downstream joins/provenance.
+    if "query_full_name" in testdf.columns:
+        testdf = testdf.with_columns(
+            pl.col("query_full_name")
+            .str.extract(r"^([^|\s]+)", group_index=1)
+            .alias("source_seq_id"),
+            pl.col("query_full_name")
+            .str.extract(r"^[^|\s]+\|([^|\s]+)", group_index=1)
+            .alias("query_tag"),
+            pl.col("query_full_name")
+            .str.extract(
+                r"(?:^|[\s;|,_])(?:frame|rf)[:=]([+-]?[1-3])",
+                group_index=1,
+            )
+            .alias("frame_id"),
+            pl.col("query_full_name")
+            .str.extract(r"^[^|\s]+\|[^|\s]+\|([0-9]+)(?:$|\s)", group_index=1)
+            .alias("orf_id"),
+        )
 
     # Write to a file in the output directory instead of the directory itself
     testdf.write_csv(results_file, separator="\t")

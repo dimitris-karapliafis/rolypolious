@@ -33,11 +33,11 @@ def translate_6frx_seqkit(
         prefix_style="double",
         params={
             "allow-unknown-codon": True,
+            "append-frame": True,
             "clean": True,
             "min-len": min_orf_length,
             "line-width": 0,
             "frame": 6,
-            "id-regexp": "'(\\*)'",  # Properly quote the regex
             "threads": threads,
         },
         positional_args=[f"{input_file} --out-file {output_file}"],

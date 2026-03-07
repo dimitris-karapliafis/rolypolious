@@ -7,6 +7,56 @@ from rolypoly.utils.bio.interval_ops import consolidate_hits
 from rolypoly.utils.logging.loggit import setup_logging
 
 
+def infer_column_specs(input_df: pl.DataFrame, column_specs: str) -> str:
+    """Infer query/target ID columns when legacy defaults do not fit the input schema."""
+    if column_specs != "qseqid,sseqid":
+        return column_specs
+
+    cols = set(input_df.columns)
+    if {"qseqid", "sseqid"}.issubset(cols):
+        return column_specs
+    if {"query_full_name", "hmm_full_name"}.issubset(cols):
+        return "query_full_name,hmm_full_name"
+    if {"query", "target"}.issubset(cols):
+        return "query,target"
+    return column_specs
+
+
+def rank_columns_exist(input_df: pl.DataFrame, rank_columns: str) -> bool:
+    """Validate that all rank columns are present in the input dataframe."""
+    cols = set(input_df.columns)
+    requested_cols = {
+        token.strip().lstrip("+-")
+        for token in rank_columns.split(",")
+        if token.strip()
+    }
+    return requested_cols.issubset(cols)
+
+
+def infer_rank_columns(input_df: pl.DataFrame, rank_columns: str) -> str:
+    """Pick robust ranking defaults when legacy '-score' is not available."""
+    if rank_columns != "-score":
+        return rank_columns
+
+    if rank_columns_exist(input_df, rank_columns):
+        return rank_columns
+
+    rank_fallbacks = [
+        "-full_hmm_score,+full_hmm_evalue,-this_dom_score",
+        "-this_dom_score,+full_hmm_evalue",
+        "-bitscore,+evalue",
+        "-full_hmm_score",
+        "-this_dom_score",
+        "+full_hmm_evalue",
+    ]
+
+    for candidate in rank_fallbacks:
+        if rank_columns_exist(input_df, candidate):
+            return candidate
+
+    return rank_columns
+
+
 @click.command(name="resolve-overlaps")
 @click.option("-i", "--input", required=True, help="Input hit table file")
 @click.option(
@@ -121,17 +171,33 @@ def consolidate_hits_rich(
 
     setup_logging(None, log_level)
 
+    input_df = pl.read_csv(input, separator="\t") if isinstance(input, str) else input
+
+    inferred_column_specs = infer_column_specs(input_df, column_specs)
+    inferred_rank_columns = infer_rank_columns(input_df, rank_columns)
+
+    if inferred_column_specs != column_specs:
+        click.echo(
+            f"[resolve-overlaps] Auto-detected column specs: '{inferred_column_specs}'",
+            err=True,
+        )
+    if inferred_rank_columns != rank_columns:
+        click.echo(
+            f"[resolve-overlaps] Auto-detected rank columns: '{inferred_rank_columns}'",
+            err=True,
+        )
+
     if output is None:
         output = stdout
     tmpdf = consolidate_hits(
-        input=input,
+        input=input_df,
         # output=output,
-        rank_columns=rank_columns,
+        rank_columns=inferred_rank_columns,
         one_per_query=one_per_query,
         one_per_range=one_per_range,
         min_overlap_positions=min_overlap_positions,
         merge=merge,
-        column_specs=column_specs,
+        column_specs=inferred_column_specs,
         drop_contained=drop_contained,
         split=split,
     )
