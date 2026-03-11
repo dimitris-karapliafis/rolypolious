@@ -27,6 +27,7 @@ class LazyGroup(click.RichGroup):
         super().__init__(*args, **kwargs)
         self.lazy_subcommands = lazy_subcommands or {}
         self._command_groups = {}  # Store group info for help display
+        self._lazy_command_group_by_key = {}
         self.init_command_groups()
 
     def init_command_groups(self):
@@ -37,9 +38,10 @@ class LazyGroup(click.RichGroup):
                 and "name" in value
                 and "commands" in value
             ):
+                group_display_name = value["name"]
                 # Store group info for help display
                 self._command_groups[name] = {
-                    "name": value["name"],
+                    "name": group_display_name,
                     "commands": {},
                 }
 
@@ -47,8 +49,16 @@ class LazyGroup(click.RichGroup):
                 for cmd_name, cmd_path in value["commands"].items():
                     if not cmd_path.startswith("hidden:"):
                         self.lazy_subcommands[cmd_name] = cmd_path
+                        self._lazy_command_group_by_key[cmd_name] = (
+                            group_display_name
+                        )
                         self._command_groups[name]["commands"][cmd_name] = (
                             cmd_path
+                        )
+                        # rich-click help rendering uses panel mappings, not format_commands()
+                        self._panel_command_mapping.setdefault(cmd_name, [])
+                        self._panel_command_mapping[cmd_name].append(
+                            group_display_name
                         )
 
                 # Remove the group definition from lazy_subcommands
@@ -71,8 +81,18 @@ class LazyGroup(click.RichGroup):
             try:
                 return self.lazy_load(cmd_name)
             except (ImportError, AttributeError) as e:
-                # If loading fails, remove the command from listings
-                if not self.lazy_subcommands[cmd_name].startswith("hidden:"):
+                # For top-level help rendering, silently skip unavailable optional commands.
+                # For explicit command invocation, show a warning.
+                context_tokens = []
+                if ctx is not None:
+                    context_tokens.extend(getattr(ctx, "protected_args", []) or [])
+                    context_tokens.extend(getattr(ctx, "args", []) or [])
+                is_direct_command_request = cmd_name in context_tokens
+
+                if (
+                    is_direct_command_request
+                    and not self.lazy_subcommands[cmd_name].startswith("hidden:")
+                ):
                     logger.warning(
                         f"Failed to load command '{cmd_name}': {str(e)}"
                     )
@@ -88,38 +108,34 @@ class LazyGroup(click.RichGroup):
         if import_path.startswith("hidden:"):
             import_path = import_path[7:]
 
-        try:
-            modname, cmd_object_name = import_path.rsplit(".", 1)
+        modname, cmd_object_name = import_path.rsplit(".", 1)
 
-            # Check if module exists first
-            if util.find_spec(modname) is None:
-                raise ImportError(f"Module '{modname}' not found")
+        # Check if module exists first
+        if util.find_spec(modname) is None:
+            raise ImportError(f"Module '{modname}' not found")
 
-            # Try to import the module
-            mod = import_module(modname)
+        # Try to import the module
+        mod = import_module(modname)
 
-            # Try to get the command object
-            if not hasattr(mod, cmd_object_name):
-                raise AttributeError(
-                    f"Module '{modname}' has no attribute '{cmd_object_name}'"
-                )
+        # Try to get the command object
+        if not hasattr(mod, cmd_object_name):
+            raise AttributeError(
+                f"Module '{modname}' has no attribute '{cmd_object_name}'"
+            )
 
-            cmd_object = getattr(mod, cmd_object_name)
+        cmd_object = getattr(mod, cmd_object_name)
 
-            # Verify it's a Click command
-            if not isinstance(cmd_object, click.Command):
-                raise ValueError(
-                    f"Object '{cmd_object_name}' in module '{modname}' is not a Click command"
-                )
+        # Verify it's a Click command
+        if not isinstance(cmd_object, click.Command):
+            raise ValueError(
+                f"Object '{cmd_object_name}' in module '{modname}' is not a Click command"
+            )
 
-            return cmd_object
+        group_display_name = self._lazy_command_group_by_key.get(cmd_name)
+        if group_display_name:
+            cmd_object.panel = group_display_name
 
-        except Exception as e:
-            if not import_path.startswith("hidden:"):
-                logger.warning(
-                    f"Error loading command '{cmd_name}': {str(e)}"
-                )
-            raise
+        return cmd_object
 
     def format_commands(self, ctx, formatter):
         """Custom command formatter to show grouped commands."""

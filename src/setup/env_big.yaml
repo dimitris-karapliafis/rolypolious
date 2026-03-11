@@ -47,4 +47,4 @@ dependencies:
   - leidenalg>=0.11.0, <0.12
   - parasail>=1.3.4, <2
   - pyopal>=0.7.3, <0.8
-  - rolypoly-tk>=0.6.24,<0.7.0
+  - rolypoly-tk>=0.7.1,<0.8.0
