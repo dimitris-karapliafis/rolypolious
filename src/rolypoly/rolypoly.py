@@ -43,7 +43,6 @@ CONTEXT_SETTINGS = dict(
             "name": "Setup and Data",
             "commands": {
                 "get-data": "rolypoly.commands.misc.get_external_data.get_data",
-                "version": "rolypoly.rolypoly.version",
                 # "build-data": "rolypoly.commands.misc.build_data.build_data", # this is for dev work.
             },
         },
@@ -123,7 +122,7 @@ def rolypoly():
     pass
 
 
-@rolypoly.command()
+@rolypoly.command(panel="Setup and Data")
 @click.option(
     "-ll", "--log-level", hidden=True, default="INFO", help="Log level"
 )
