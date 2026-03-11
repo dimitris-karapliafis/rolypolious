@@ -1,9 +1,7 @@
 import logging
 import os
 from pathlib import Path
-from typing import Any, Dict, Optional
-
-from typing_extensions import Union
+from typing import Any, Dict, Optional, Union
 
 from rolypoly.utils.logging.loggit import setup_logging
 
