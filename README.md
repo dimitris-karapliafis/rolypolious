@@ -131,8 +131,6 @@ If you have suggestions for additional commands or features, or want to implemen
 
 ## Dependencies
 
-**📦 Modular Installation Available**: RolyPoly supports both quick setup (one environment with all dependecies for all commands) and modular installation (command-specific environments). The modular approach is particularly useful for software developers who want to integrate specific rolypoly features with minimal dependency conflicts. See the [installation documentation](https://urineri.github.io/rolypoly/installation/) for details.
-
 Not all 3rd party software is used by all the different commands. RolyPoly includes a "citation reminder" that will try to list all the external software used by a command. The "reminded citations" are pretty printed to console (stdout) and to a logfile. To shut off the terminal citation reminder printing, set `ROLYPOLY_REMIND_CITATIONS` to false in your `rpconfig.json` file.
 
 <details><summary>Click to show dependencies</summary>  
